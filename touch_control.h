@@ -53,7 +53,7 @@ void initTouch() {
                 _touchThresholdClock, _touchThresholdWeather, _touchThresholdMoon);
 }
 
-static bool _isTouchAccepted(touch_pad_t pin, uint16_t threshold) {
+static bool _isTouchAccepted(uint8_t pin, uint16_t threshold) {
   unsigned long now = millis();
   if (now - _touchInitAt < TOUCH_BOOT_GUARD_MS) return false;
   if (now - _lastTouchAcceptedAt < TOUCH_DEBOUNCE_MS) return false;
