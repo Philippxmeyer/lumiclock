@@ -49,6 +49,8 @@ const int TFT_LED = 4;
 // SPIFFS / PNG-Callbacks (werden von weather.h und moon_phase.h genutzt)
 // =============================================================================
 fs::File pngFile;
+int16_t  pngXOffset = 0;
+int16_t  pngYOffset = 0;
 
 void* pngOpen(const char* filename, int32_t* size) {
   pngFile = SPIFFS.open(filename, "r");
