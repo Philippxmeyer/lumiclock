@@ -816,6 +816,11 @@ const uint8_t Baloo2_Bold24pt8bBitmaps[] PROGMEM = {
   0x1F, 0xFC, 0x7E, 0xFF, 0xF9, 0xFF, 0xF1, 0xFF, 0xC0, 0xFE, 0x00 };
 
 const GFXglyph Baloo2_Bold24pt8bGlyphs[] PROGMEM = {
+  {  3757,  12,  37,  14,    2,  -30 },   // 0x28 '(' (mapped from '[')
+  {  3877,  11,  37,  14,    0,  -30 },   // 0x29 ')' (mapped from ']')
+  {     0,   1,   1,   8,    0,    0 },   // 0x2A '*' (placeholder)
+  {     0,   1,   1,   8,    0,    0 },   // 0x2B '+' (placeholder)
+  {     0,   1,   1,   8,    0,    0 },   // 0x2C ',' (placeholder)
   {     0,  13,   6,  17,    2,  -14 },   // 0x2D '-'
   {    10,   8,   9,  10,    1,   -7 },   // 0x2E '.'
   {    19,  15,  38,  16,    0,  -32 },   // 0x2F '/'
@@ -952,6 +957,6 @@ const GFXglyph Baloo2_Bold24pt8bGlyphs[] PROGMEM = {
 const GFXfont Baloo2_Bold24pt8b PROGMEM = {
   (uint8_t  *)Baloo2_Bold24pt8bBitmaps,
   (GFXglyph *)Baloo2_Bold24pt8bGlyphs,
-  0x2D, 0xB0, 75 };
+  0x28, 0xB0, 75 };
 
 // Approx. 10686 bytes
