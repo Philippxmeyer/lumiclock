@@ -7,58 +7,36 @@
 
 extern const int TFT_LED;
 
-// ---------------------------------------------------------------------------
-// Touch-Pins (kapazitiv)
-// T6 = GPIO14  → Uhr / Display aufwecken
-// T7 = GPIO27  → Wetter
-// T8 = GPIO33  → Mondphase
-// ---------------------------------------------------------------------------
 #define TOUCH_PIN_CLOCK    T6
 #define TOUCH_PIN_WEATHER  T7
 #define TOUCH_PIN_MOON     T8
 #define TOUCH_THRESHOLD    30
-
-// Wie lange bleibt das Backlight nach einem Touch an?
 #define BACKLIGHT_TIMEOUT_MS 10000UL
 
-// ---------------------------------------------------------------------------
-// Interne Flags – nur in ISR setzen, nur in handleTouch() lesen
-// ---------------------------------------------------------------------------
 volatile bool _touchClock   = false;
 volatile bool _touchWeather = false;
 volatile bool _touchMoon    = false;
 
-unsigned long _backlightOnAt  = 0;
+unsigned long _backlightOnAt   = 0;
 bool          _backlightActive = false;
 
-// ---------------------------------------------------------------------------
-// ISR – müssen im IRAM liegen
-// ---------------------------------------------------------------------------
 void IRAM_ATTR _onTouchClock()   { _touchClock   = true; }
 void IRAM_ATTR _onTouchWeather() { _touchWeather = true; }
 void IRAM_ATTR _onTouchMoon()    { _touchMoon    = true; }
 
-// ---------------------------------------------------------------------------
-// Initialisierung – einmalig in setup() aufrufen
-// ---------------------------------------------------------------------------
 void initTouch() {
   touchAttachInterrupt(TOUCH_PIN_CLOCK,   _onTouchClock,   TOUCH_THRESHOLD);
   touchAttachInterrupt(TOUCH_PIN_WEATHER, _onTouchWeather, TOUCH_THRESHOLD);
   touchAttachInterrupt(TOUCH_PIN_MOON,    _onTouchMoon,    TOUCH_THRESHOLD);
 }
 
-// ---------------------------------------------------------------------------
-// Backlight einschalten und Timer starten
-// ---------------------------------------------------------------------------
 static void _activateBacklight() {
   digitalWrite(TFT_LED, HIGH);
-  _backlightOnAt  = millis();
+  _backlightOnAt   = millis();
   _backlightActive = true;
+  stateRendered    = false;  // Anzeige nach Aufwecken neu zeichnen
 }
 
-// ---------------------------------------------------------------------------
-// handleTouch() – in jedem loop()-Durchlauf aufrufen
-// ---------------------------------------------------------------------------
 void handleTouch() {
   if (_touchClock) {
     _touchClock = false;
@@ -86,13 +64,9 @@ void handleTouch() {
   if (_backlightActive && millis() - _backlightOnAt > BACKLIGHT_TIMEOUT_MS) {
     _backlightActive = false;
     Serial.println("[Touch] Backlight-Timeout");
-    // Tatsächliches Schalten übernimmt handleNightMode() in der .ino
   }
 }
 
-// ---------------------------------------------------------------------------
-// Wird von handleNightMode() in lumiclock.ino abgefragt
-// ---------------------------------------------------------------------------
 bool isBacklightActive() {
   return _backlightActive;
 }
