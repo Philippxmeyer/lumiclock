@@ -113,22 +113,26 @@ void renderMoonPhase(int day, int month, int year) {
   tft.fillScreen(TFT_BLACK);
 
   // Icon zentriert
-  drawPNG(_moonIcon(phaseIndex), 160, 20);
+  drawPNG(_moonIcon(phaseIndex), 10, 5);
 
-  // Phasename
-  tft.setFreeFont(&Baloo2_Bold24pt8b);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  String phaseName = String(_moonPhaseName(phaseIndex));
-  int16_t nameWidth = tft.textWidth(phaseName);
-  tft.setCursor((tft.width() - nameWidth) / 2, 260);
-  tft.println(phaseName);
+// Phasename
+tft.setFreeFont(nullptr);        // FreeFont deaktivieren
+tft.setTextFont(4);              // Standardfont, deutlich kleiner
+tft.setTextSize(1);
+tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
-  // Mondalter in Tagen
-  tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  String ageStr = "Tag " + String((int)age + 1) + " von 30";
-  int16_t ageWidth = tft.textWidth(ageStr);
-  tft.setCursor((tft.width() - ageWidth) / 2, 297);
-  tft.println(ageStr);
+String phaseName = String(_moonPhaseName(phaseIndex));
+int16_t nameWidth = tft.textWidth(phaseName);
+tft.setCursor((tft.width() - nameWidth) / 2, 250);
+tft.println(phaseName);
+
+// Mondalter in Tagen
+tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+
+String ageStr = "Tag " + String((int)age + 1) + " von 30";
+int16_t ageWidth = tft.textWidth(ageStr);
+tft.setCursor((tft.width() - ageWidth) / 2, 275);
+tft.println(ageStr);
 }
 
 #endif

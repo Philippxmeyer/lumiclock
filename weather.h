@@ -109,6 +109,8 @@ void fetchWeather() {
   HTTPClient http;
   http.begin(client, WEATHER_URL);
   http.setTimeout(8000);  // 8 Sekunden Timeout
+  http.addHeader("Accept-Encoding", "identity");  // kein gzip, JSON-Stream bleibt parsebar
+  http.addHeader("User-Agent", "lumiclock/1.0");
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
@@ -117,13 +119,19 @@ void fetchWeather() {
     return;
   }
 
-  // Open-Meteo-Response: ~400 Bytes, 1024er Buffer gibt Luft nach oben
-  StaticJsonDocument<1024> doc;
-  DeserializationError err = deserializeJson(doc, http.getStream());
+  String payload = http.getString();
   http.end();
 
+  if (payload.length() == 0) {
+    Serial.println("[Wetter] Leere Antwort");
+    return;
+  }
+
+  // Open-Meteo-Response: typischerweise < 1KB
+  StaticJsonDocument<2048> doc;
+  DeserializationError err = deserializeJson(doc, payload);
   if (err) {
-    Serial.printf("[Wetter] JSON-Fehler: %s\n", err.c_str());
+    Serial.printf("[Wetter] JSON-Fehler: %s | Prefix: %.80s\n", err.c_str(), payload.c_str());
     return;
   }
 
@@ -147,8 +155,10 @@ void renderWeather() {
   tft.fillScreen(TFT_BLACK);
 
   if (!_weatherValid) {
-    tft.setFreeFont(&Baloo2_Bold24pt8b);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+tft.setFreeFont(nullptr);        // FreeFont deaktivieren
+tft.setTextFont(4);              // Standardfont, deutlich kleiner
+tft.setTextSize(1);
+tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setCursor(20, 160);
     tft.println("Keine Wetterdaten");
     return;
@@ -157,14 +167,18 @@ void renderWeather() {
   int iconNum = _wmoToIcon(_weatherCode, _isDay);
   drawPNG(_iconFilename(iconNum), 10, 90);
 
-  tft.setFreeFont(&Baloo2_Bold40pt7b);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+tft.setFreeFont(nullptr);        // FreeFont deaktivieren
+tft.setTextFont(4);              // Standardfont, deutlich kleiner
+tft.setTextSize(1);
+tft.setTextColor(TFT_WHITE, TFT_BLACK);
   String tempStr = String((int)round(_temperature)) + "\xB0""C";
   tft.setCursor(265, 130);
   tft.println(tempStr);
 
-  tft.setFreeFont(&Baloo2_Bold24pt8b);
-  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+tft.setFreeFont(nullptr);        // FreeFont deaktivieren
+tft.setTextFont(4);              // Standardfont, deutlich kleiner
+tft.setTextSize(1);
+tft.setTextColor(TFT_WHITE, TFT_BLACK);
   String feelStr = "fühlt " + String((int)round(_apparentTemperature)) + "\xB0""C";
   tft.setCursor(265, 185);
   tft.println(feelStr);

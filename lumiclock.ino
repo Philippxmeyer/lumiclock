@@ -54,6 +54,9 @@ int16_t  pngYOffset = 0;
 
 void* pngOpen(const char* filename, int32_t* size) {
   pngFile = LittleFS.open(filename, "r");
+  if (!pngFile && filename[0] == '/') {
+    pngFile = LittleFS.open(filename + 1, "r");  // Fallback für Images ohne führenden Slash
+  }
   if (!pngFile) {
     Serial.printf("[PNG] Datei nicht gefunden: %s\n", filename);
     return NULL;
@@ -100,6 +103,27 @@ bool drawPNG(const char* filename, int16_t x, int16_t y) {
   return true;
 }
 
+
+
+bool checkAsset(const char* pathWithSlash) {
+  if (LittleFS.exists(pathWithSlash)) return true;
+  if (pathWithSlash[0] == '/' && LittleFS.exists(pathWithSlash + 1)) return true;
+  return false;
+}
+
+void logAssetHealth() {
+  const char* mustHave[] = {"/01-s.png", "/07-s.png", "/moon0.png", "/moon5.png"};
+  bool allOk = true;
+  for (size_t i = 0; i < sizeof(mustHave) / sizeof(mustHave[0]); ++i) {
+    bool ok = checkAsset(mustHave[i]);
+    Serial.printf("[LittleFS] Asset %s: %s\n", mustHave[i], ok ? "OK" : "FEHLT");
+    allOk = allOk && ok;
+  }
+  if (!allOk) {
+    Serial.println("[LittleFS] PNG-Assets fehlen. Bitte LittleFS-Image aus /data hochladen.");
+  }
+}
+
 // =============================================================================
 // Nachtmodus
 // =============================================================================
@@ -143,11 +167,12 @@ void setup() {
 
   // LittleFS
   tft.println("LittleFS...");
-  if (!LittleFS.begin(true)) {
+  if (!LittleFS.begin(false)) {
     tft.println("LittleFS FEHLER!");
     Serial.println("[LittleFS] Initialisierung fehlgeschlagen!");
     while (1) delay(1000);
   }
+  logAssetHealth();
 
   // WLAN
   tft.println("WLAN...");
