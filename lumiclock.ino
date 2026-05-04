@@ -54,6 +54,9 @@ int16_t  pngYOffset = 0;
 
 void* pngOpen(const char* filename, int32_t* size) {
   pngFile = LittleFS.open(filename, "r");
+  if (!pngFile && filename[0] == '/') {
+    pngFile = LittleFS.open(filename + 1, "r");  // Fallback für Images ohne führenden Slash
+  }
   if (!pngFile) {
     Serial.printf("[PNG] Datei nicht gefunden: %s\n", filename);
     return NULL;

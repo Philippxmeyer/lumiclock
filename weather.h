@@ -110,6 +110,7 @@ void fetchWeather() {
   http.begin(client, WEATHER_URL);
   http.setTimeout(8000);  // 8 Sekunden Timeout
   http.addHeader("Accept-Encoding", "identity");  // kein gzip, JSON-Stream bleibt parsebar
+  http.addHeader("User-Agent", "lumiclock/1.0");
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
@@ -118,13 +119,19 @@ void fetchWeather() {
     return;
   }
 
-  // Open-Meteo-Response: ~400 Bytes, 1024er Buffer gibt Luft nach oben
-  StaticJsonDocument<1024> doc;
-  DeserializationError err = deserializeJson(doc, http.getStream());
+  String payload = http.getString();
   http.end();
 
+  if (payload.length() == 0) {
+    Serial.println("[Wetter] Leere Antwort");
+    return;
+  }
+
+  // Open-Meteo-Response: typischerweise < 1KB
+  StaticJsonDocument<2048> doc;
+  DeserializationError err = deserializeJson(doc, payload);
   if (err) {
-    Serial.printf("[Wetter] JSON-Fehler: %s\n", err.c_str());
+    Serial.printf("[Wetter] JSON-Fehler: %s | Prefix: %.80s\n", err.c_str(), payload.c_str());
     return;
   }
 

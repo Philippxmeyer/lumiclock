@@ -10,10 +10,11 @@ extern const int TFT_LED;
 #define TOUCH_PIN_CLOCK    T6
 #define TOUCH_PIN_WEATHER  T7
 #define TOUCH_PIN_MOON     T8
-#define TOUCH_THRESHOLD_FACTOR_NUM  80  // 80% vom Leerlaufwert
+#define TOUCH_THRESHOLD_FACTOR_NUM  50  // 50% vom Leerlaufwert (weniger Fehlauslösungen)
 #define TOUCH_THRESHOLD_FACTOR_DEN 100
 #define TOUCH_DEBOUNCE_MS          350UL
 #define TOUCH_BOOT_GUARD_MS       2000UL
+#define TOUCH_CONFIRM_GAP_MS         8UL
 #define BACKLIGHT_TIMEOUT_MS     10000UL
 
 volatile bool _touchClock   = false;
@@ -58,8 +59,10 @@ static bool _isTouchAccepted(uint8_t pin, uint16_t threshold) {
   if (now - _touchInitAt < TOUCH_BOOT_GUARD_MS) return false;
   if (now - _lastTouchAcceptedAt < TOUCH_DEBOUNCE_MS) return false;
 
-  uint16_t raw = touchRead(pin);
-  bool accepted = raw <= threshold;
+  uint16_t raw1 = touchRead(pin);
+  delay(TOUCH_CONFIRM_GAP_MS);
+  uint16_t raw2 = touchRead(pin);
+  bool accepted = (raw1 <= threshold) && (raw2 <= threshold);
   if (accepted) _lastTouchAcceptedAt = now;
   return accepted;
 }
