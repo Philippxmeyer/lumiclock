@@ -74,12 +74,13 @@ int32_t pngSeek(PNGFILE* handle, int32_t position) {
   return pngFile.seek(position);
 }
 
-void pngDraw(PNGDRAW* pDraw) {
+int pngDraw(PNGDRAW* pDraw) {
   uint16_t lineBuffer[480];  // Breite des 3.5"-Displays (480px)
   png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xFFFFFFFF);
   // X/Y-Offset wird von weather.h / moon_phase.h als extern gesetzt
   extern int16_t pngXOffset, pngYOffset;
   tft.pushImage(pngXOffset, pngYOffset + pDraw->y, pDraw->iWidth, 1, lineBuffer);
+  return 1;
 }
 
 // Wird von weather.h und moon_phase.h aufgerufen
