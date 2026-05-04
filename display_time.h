@@ -32,12 +32,13 @@ void displayTime(const String& hours, const String& minutes) {
 
   // --- Uhrzeit ---
   tft.setFreeFont(&Baloo2_Bold40pt7b);
+  tft.setTextSize(2);
   tft.setTextColor(TFT_RED, TFT_BLACK);
 
   String timeStr = hours + ":" + minutes;
   int16_t timeW  = tft.textWidth(timeStr);
   int16_t timeX  = (tft.width() - timeW) / 2;
-  int16_t timeY  = (tft.height() / 2) - 30;
+  int16_t timeY  = (tft.height() / 2) + 20;
 
   tft.setCursor(timeX, timeY);
   tft.println(timeStr);
@@ -45,8 +46,7 @@ void displayTime(const String& hours, const String& minutes) {
   // --- Datum (Wochentag, TT. Monat JJJJ) ---
   struct tm t;
   if (getLocalTime(&t)) {
- tft.setFreeFont(nullptr);        // FreeFont deaktivieren
-tft.setTextFont(4);              // Standardfont, deutlich kleiner
+tft.setFreeFont(&FreeSans18pt7b);
 tft.setTextSize(1);
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
 
