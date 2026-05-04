@@ -63,7 +63,7 @@ static int _moonPhaseIndex(double age) {
 
 // ---------------------------------------------------------------------------
 // PNG-Dateiname für jede Phase
-// Dateien müssen als /moon0.png – /moon7.png auf SPIFFS liegen
+// Dateien müssen als /moon0.png – /moon7.png auf LittleFS liegen
 // ---------------------------------------------------------------------------
 static const char* _moonIcon(int phaseIndex) {
   switch (phaseIndex) {

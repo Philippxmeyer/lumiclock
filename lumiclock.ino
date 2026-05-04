@@ -5,7 +5,7 @@
 
 #include <TFT_eSPI.h>
 #include <FS.h>
-#include <SPIFFS.h>
+#include <LittleFS.h>
 #include <PNGdec.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
@@ -46,14 +46,14 @@ const int TFT_LED = 4;
 #define NIGHT_HOUR_END    7
 
 // =============================================================================
-// SPIFFS / PNG-Callbacks (werden von weather.h und moon_phase.h genutzt)
+// LittleFS / PNG-Callbacks (werden von weather.h und moon_phase.h genutzt)
 // =============================================================================
 fs::File pngFile;
 int16_t  pngXOffset = 0;
 int16_t  pngYOffset = 0;
 
 void* pngOpen(const char* filename, int32_t* size) {
-  pngFile = SPIFFS.open(filename, "r");
+  pngFile = LittleFS.open(filename, "r");
   if (!pngFile) {
     Serial.printf("[PNG] Datei nicht gefunden: %s\n", filename);
     return NULL;
@@ -141,11 +141,11 @@ void setup() {
   // Touch früh initialisieren (ISR)
   initTouch();
 
-  // SPIFFS
-  tft.println("SPIFFS...");
-  if (!SPIFFS.begin(true)) {
-    tft.println("SPIFFS FEHLER!");
-    Serial.println("[SPIFFS] Initialisierung fehlgeschlagen!");
+  // LittleFS
+  tft.println("LittleFS...");
+  if (!LittleFS.begin(true)) {
+    tft.println("LittleFS FEHLER!");
+    Serial.println("[LittleFS] Initialisierung fehlgeschlagen!");
     while (1) delay(1000);
   }
 

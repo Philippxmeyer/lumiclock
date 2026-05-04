@@ -83,7 +83,7 @@ static int _wmoToIcon(int code, bool day) {
 }
 
 // ---------------------------------------------------------------------------
-// Icon-Nummer → Dateiname auf SPIFFS
+// Icon-Nummer → Dateiname auf LittleFS
 // Format: /XX-s.png (einstellige Zahlen mit führender Null)
 // ---------------------------------------------------------------------------
 static const char* _iconFilename(int iconNum) {
