@@ -15,8 +15,8 @@ extern bool drawPNG(const char* filename, int16_t x, int16_t y);
 // ---------------------------------------------------------------------------
 // Standort – hier anpassen
 // ---------------------------------------------------------------------------
-#define WEATHER_LAT "50.66"
-#define WEATHER_LON  "7.98"
+#define WEATHER_LAT "50.735"
+#define WEATHER_LON  "7.967"
 
 #define WEATHER_URL \
   "https://api.open-meteo.com/v1/forecast" \
@@ -155,11 +155,9 @@ void renderWeather() {
   tft.fillScreen(TFT_BLACK);
 
   if (!_weatherValid) {
-tft.setFreeFont(nullptr);        // FreeFont deaktivieren
-tft.setTextFont(4);              // Standardfont, deutlich kleiner
-tft.setTextSize(1);
-tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setCursor(20, 160);
+   tft.setFreeFont(&Baloo2_Bold24pt8b);
+   tft.setTextColor(TFT_WHITE);
+    tft.setCursor(20, 80);
     tft.println("Keine Wetterdaten");
     return;
   }
@@ -167,24 +165,23 @@ tft.setTextColor(TFT_WHITE, TFT_BLACK);
   int iconNum = _wmoToIcon(_weatherCode, _isDay);
   drawPNG(_iconFilename(iconNum), 10, 90);
 
-tft.setFreeFont(nullptr);        // FreeFont deaktivieren
-tft.setTextFont(4);              // Standardfont, deutlich kleiner
-tft.setTextSize(1);
-tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  String tempStr = String((int)round(_temperature)) + "\xB0""C";
+tft.setFreeFont(&Baloo2_Bold24pt8b);
+tft.setTextSize(2);
+tft.setTextColor(TFT_RED);
+  String tempStr = String((int)round(_temperature)) + "°C";
   tft.setCursor(265, 130);
   tft.println(tempStr);
 
-tft.setFreeFont(nullptr);        // FreeFont deaktivieren
-tft.setTextFont(4);              // Standardfont, deutlich kleiner
-tft.setTextSize(1);
-tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  String feelStr = "fühlt " + String((int)round(_apparentTemperature)) + "\xB0""C";
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_DARKGREY);
+  String feelStr = "(" + String((int)round(_apparentTemperature)) + "°C)";
   tft.setCursor(265, 185);
   tft.println(feelStr);
 
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setCursor(10, 272);
+  tft.setFreeFont(&FreeSans18pt7b);
+  tft.setTextColor(TFT_LIGHTGREY);
+  int16_t codeWidth = tft.textWidth(_weatherText(_weatherCode));
+  tft.setCursor((tft.width() - codeWidth) / 2, 265);
   tft.println(_weatherText(_weatherCode));
 }
 
