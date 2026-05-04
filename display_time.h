@@ -45,7 +45,9 @@ void displayTime(const String& hours, const String& minutes) {
   // --- Datum (Wochentag, TT. Monat JJJJ) ---
   struct tm t;
   if (getLocalTime(&t)) {
-    tft.setFreeFont(&Baloo2_Bold24pt8b);
+ tft.setFreeFont(nullptr);        // FreeFont deaktivieren
+tft.setTextFont(4);              // Standardfont, deutlich kleiner
+tft.setTextSize(1);
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
 
     char dateBuf[32];
