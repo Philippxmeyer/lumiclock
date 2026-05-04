@@ -1,0 +1,12 @@
+# Zugangsdaten – niemals ins Repository!
+wifi_credentials.h
+
+# Arduino build-Artefakte
+build/
+*.elf
+*.bin
+*.map
+
+# VS Code / PlatformIO
+.vscode/
+.pio/
