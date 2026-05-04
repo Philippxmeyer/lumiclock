@@ -109,6 +109,7 @@ void fetchWeather() {
   HTTPClient http;
   http.begin(client, WEATHER_URL);
   http.setTimeout(8000);  // 8 Sekunden Timeout
+  http.addHeader("Accept-Encoding", "identity");  // kein gzip, JSON-Stream bleibt parsebar
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
