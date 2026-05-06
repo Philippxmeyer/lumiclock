@@ -1,3 +1,5 @@
+![lumiclock banner](lumiclock-banner.svg)
+
 # Lumiclock
 
 > Eine Kinderuhr auf ESP32-Basis mit Wetter, Mondphase, Touch-Bedienung, Nachtlicht und OTA-Updates – also genau das, was man baut, wenn ein normaler Wecker einfach **zu wenig Overengineering** hat.
