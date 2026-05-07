@@ -184,7 +184,7 @@ void renderWeather() {
   }
 
   int iconNum = _wmoToIcon(_weatherCode, _isDay);
-  drawPNG(_iconFilename(iconNum), 10, 90);
+  drawPNG(_iconFilename(iconNum), 20, 50);
 
 tft.setFreeFont(&Baloo2_Bold24pt8b);
 tft.setTextSize(2);
@@ -306,8 +306,8 @@ void renderForecast() {
   const int COL_W = 160;
 
   // Trennlinien
-  tft.drawFastVLine(COL_W,     0, 320, TFT_DARKGREY);
-  tft.drawFastVLine(2 * COL_W, 0, 320, TFT_DARKGREY);
+  tft.drawFastVLine(COL_W + 10,     0, 320, TFT_DARKGREY);
+  tft.drawFastVLine(2 * COL_W + 10, 0, 320, TFT_DARKGREY);
 
   for (int col = 0; col < 3; col++) {
     int dayIdx = startIndex + col;
