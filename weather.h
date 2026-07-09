@@ -6,6 +6,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
+#include <math.h>
+
 #include "Baloo2_Bold40pt7b.h"
 #include "Baloo2_Bold24pt8b.h"
 
@@ -13,16 +15,19 @@ extern TFT_eSPI tft;
 extern bool drawPNG(const char* filename, int16_t x, int16_t y);
 
 // ---------------------------------------------------------------------------
-// Standort – hier anpassen
+// Standort
 // ---------------------------------------------------------------------------
-#define WEATHER_LAT "50.735"
-#define WEATHER_LON  "7.967"
+#define WEATHER_LAT "50.73542714"
+#define WEATHER_LON "7.96705156"
 
 #define WEATHER_URL \
   "https://api.open-meteo.com/v1/forecast" \
   "?latitude=" WEATHER_LAT \
   "&longitude=" WEATHER_LON \
   "&current=temperature_2m,apparent_temperature,weather_code,is_day" \
+  "&hourly=weather_code,precipitation_probability,precipitation" \
+  "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max" \
+  "&forecast_days=3" \
   "&timezone=Europe%2FBerlin"
 
 // ---------------------------------------------------------------------------
@@ -31,28 +36,30 @@ extern bool drawPNG(const char* filename, int16_t x, int16_t y);
 static float _temperature         = 0.0f;
 static float _apparentTemperature = 0.0f;
 static int   _weatherCode         = 0;
+static int   _displayWeatherCode  = 0;
 static bool  _isDay               = true;
 static bool  _weatherValid        = false;
+static bool  _morningFog          = false;
 
 // ---------------------------------------------------------------------------
-// WMO-Code → AccuWeather Icon-Nummer (Tag/Nacht)
+// WMO-Code → AccuWeather Icon-Nummer
 // ---------------------------------------------------------------------------
 static int _wmoToIcon(int code, bool day) {
-  if (code == 0)                          return day ? 1  : 33;
-  if (code == 1)                          return day ? 2  : 34;
-  if (code == 2)                          return day ? 3  : 35;
-  if (code == 3)                          return 7;
-  if (code == 45 || code == 48)           return 11;
+  if (code == 0)                              return day ? 1  : 33;
+  if (code == 1)                              return day ? 2  : 34;
+  if (code == 2)                              return day ? 3  : 35;
+  if (code == 3)                              return 7;
+  if (code == 45 || code == 48)               return 11;
   if (code == 51 || code == 53 || code == 55) return day ? 14 : 39;
-  if (code == 56 || code == 57)           return 26;
+  if (code == 56 || code == 57)               return 26;
   if (code == 61 || code == 63 || code == 65) return 18;
-  if (code == 66 || code == 67)           return 26;
+  if (code == 66 || code == 67)               return 26;
   if (code == 71 || code == 73 || code == 75) return 22;
-  if (code == 77)                         return 24;
-  if (code == 80 || code == 81)           return day ? 14 : 39;
-  if (code == 82)                         return day ? 12 : 40;
-  if (code == 85 || code == 86)           return day ? 23 : 44;
-  if (code >= 95 && code <= 99)           return 15;
+  if (code == 77)                             return 24;
+  if (code == 80 || code == 81)               return day ? 14 : 39;
+  if (code == 82)                             return day ? 12 : 40;
+  if (code == 85 || code == 86)               return day ? 23 : 44;
+  if (code >= 95 && code <= 99)               return 15;
   return day ? 1 : 33;
 }
 
@@ -86,37 +93,95 @@ static const char* _weatherText(int code) {
 }
 
 // ---------------------------------------------------------------------------
-// Tages-Prognose – gecachte Daten (4 Tage)
+// Wettercode für Tagesanzeige optimieren
+// Bewertet 10–18 Uhr statt stumpf daily.weather_code.
+// Dadurch wird z.B. Morgennebel nicht als ganzer Nebeltag angezeigt.
 // ---------------------------------------------------------------------------
-struct ForecastDay {
-  int   weatherCode;
-  float tempMax;
-  float tempMin;
-  int   precipProb;
-};
+static int _pickDisplayWeatherCode(JsonDocument& doc) {
+  JsonArray times = doc["hourly"]["time"];
+  JsonArray codes = doc["hourly"]["weather_code"];
+  JsonArray pops  = doc["hourly"]["precipitation_probability"];
+  JsonArray rain  = doc["hourly"]["precipitation"];
 
-static ForecastDay _forecast[4];
-static bool        _forecastValid = false;
+  if (times.isNull() || codes.isNull()) {
+    return doc["current"]["weather_code"] | 0;
+  }
 
-#define FORECAST_URL \
-  "https://api.open-meteo.com/v1/forecast" \
-  "?latitude=" WEATHER_LAT \
-  "&longitude=" WEATHER_LON \
-  "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" \
-  "&forecast_days=4" \
-  "&timezone=Europe%2FBerlin"
+  int count[100] = {0};
+  int bestCode = doc["current"]["weather_code"] | 0;
+
+  int maxPop = 0;
+  float rainSum = 0.0f;
+
+  _morningFog = false;
+
+  for (size_t i = 0; i < times.size() && i < codes.size(); i++) {
+    const char* ts = times[i];
+    if (!ts || strlen(ts) < 13) continue;
+
+    int hour = atoi(ts + 11);
+    int code = codes[i] | 0;
+
+    // Morgennebel nur als Zusatz merken
+    if (hour >= 5 && hour <= 9 && (code == 45 || code == 48)) {
+      _morningFog = true;
+    }
+
+    // Hauptbewertung: Tageslicht-/Erlebniszeit
+    if (hour >= 10 && hour <= 18) {
+      if (code >= 0 && code < 100) count[code]++;
+
+      if (!pops.isNull() && i < pops.size()) {
+        int p = pops[i] | 0;
+        if (p > maxPop) maxPop = p;
+      }
+
+      if (!rain.isNull() && i < rain.size()) {
+        rainSum += rain[i] | 0.0f;
+      }
+    }
+  }
+
+  // Niederschlag schlägt Wolkenlogik
+  if (rainSum > 1.0f || maxPop >= 60) {
+    if (count[95] || count[96] || count[99]) return 95;
+    if (count[82]) return 82;
+    if (count[80] || count[81]) return 80;
+    if (count[65]) return 65;
+    if (count[61] || count[63]) return 61;
+    if (count[51] || count[53] || count[55]) return 51;
+  }
+
+  // Häufigster Code zwischen 10 und 18 Uhr
+  int bestCount = -1;
+  for (int c = 0; c < 100; c++) {
+    if (count[c] > bestCount) {
+      bestCount = count[c];
+      bestCode = c;
+    }
+  }
+
+  // Kleine Glättung: ein paar Wolken ruinieren keinen sonnigen Tag
+  int clearish = count[0] + count[1];
+  int partly   = count[2];
+  int cloudy   = count[3];
+
+  if (clearish >= 5) return 1;
+  if (clearish + partly >= 5) return 2;
+  if (cloudy >= 5) return 3;
+
+  return bestCode;
+}
 
 // ---------------------------------------------------------------------------
 // initWeather()
 // ---------------------------------------------------------------------------
 void initWeather() {
-  Serial.println("[Wetter] Open-Meteo HTTPS – kein API-Key erforderlich");
+  Serial.println("[Wetter] Open-Meteo HTTPS – optimierte Tagesbewertung aktiv");
 }
 
 // ---------------------------------------------------------------------------
-// fetchWeather() – HTTPS mit setInsecure() (kein Root-CA nötig)
-// setInsecure() deaktiviert die Zertifikatsprüfung – für ein lokales
-// Hobbygerät ohne sensible Daten akzeptabel, spart das CA-Bundle.
+// fetchWeather()
 // ---------------------------------------------------------------------------
 void fetchWeather() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -125,13 +190,14 @@ void fetchWeather() {
   }
 
   WiFiClientSecure client;
-  client.setInsecure();  // Zertifikat nicht prüfen
+  client.setInsecure();
 
   HTTPClient http;
   http.begin(client, WEATHER_URL);
-  http.setTimeout(8000);  // 8 Sekunden Timeout
-  http.addHeader("Accept-Encoding", "identity");  // kein gzip, JSON-Stream bleibt parsebar
-  http.addHeader("User-Agent", "lumiclock/1.0");
+  http.setTimeout(8000);
+  http.addHeader("Accept-Encoding", "identity");
+  http.addHeader("User-Agent", "lumiclock/1.1");
+
   int httpCode = http.GET();
 
   if (httpCode != HTTP_CODE_OK) {
@@ -148,9 +214,9 @@ void fetchWeather() {
     return;
   }
 
-  // Open-Meteo-Response: typischerweise < 1KB
-  StaticJsonDocument<2048> doc;
+  DynamicJsonDocument doc(16384);
   DeserializationError err = deserializeJson(doc, payload);
+
   if (err) {
     Serial.printf("[Wetter] JSON-Fehler: %s | Prefix: %.80s\n", err.c_str(), payload.c_str());
     return;
@@ -160,13 +226,20 @@ void fetchWeather() {
   _apparentTemperature = doc["current"]["apparent_temperature"] | 0.0f;
   _weatherCode         = doc["current"]["weather_code"]         | 0;
   _isDay               = (doc["current"]["is_day"]              | 1) == 1;
+
+  _displayWeatherCode  = _pickDisplayWeatherCode(doc);
   _weatherValid        = true;
 
-  int iconNum = _wmoToIcon(_weatherCode, _isDay);
-  Serial.printf("[Wetter] %.1f°C (gefühlt %.1f°C) | Code %d | %s | Icon %02d | %s\n",
-    _temperature, _apparentTemperature,
-    _weatherCode, _isDay ? "Tag" : "Nacht",
-    iconNum, _weatherText(_weatherCode));
+  int iconNum = _wmoToIcon(_displayWeatherCode, _isDay);
+
+  Serial.printf("[Wetter] %.1f°C (gefühlt %.1f°C) | Jetzt Code %d | Anzeige Code %d | Icon %02d | %s%s\n",
+    _temperature,
+    _apparentTemperature,
+    _weatherCode,
+    _displayWeatherCode,
+    iconNum,
+    _weatherText(_displayWeatherCode),
+    _morningFog ? " | Morgennebel erkannt" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -176,180 +249,43 @@ void renderWeather() {
   tft.fillScreen(TFT_BLACK);
 
   if (!_weatherValid) {
-   tft.setFreeFont(&Baloo2_Bold24pt8b);
-   tft.setTextColor(TFT_WHITE);
+    tft.setFreeFont(&Baloo2_Bold24pt8b);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE);
     tft.setCursor(20, 80);
     tft.println("Keine Wetterdaten");
     return;
   }
 
-  int iconNum = _wmoToIcon(_weatherCode, _isDay);
-  drawPNG(_iconFilename(iconNum), 20, 50);
+  int iconNum = _wmoToIcon(_displayWeatherCode, _isDay);
+  drawPNG(_iconFilename(iconNum), 10, 90);
 
-tft.setFreeFont(&Baloo2_Bold24pt8b);
-tft.setTextSize(2);
-tft.setTextColor(TFT_RED);
+  tft.setFreeFont(&Baloo2_Bold24pt8b);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_RED);
+
   String tempStr = String((int)round(_temperature)) + "°C";
   tft.setCursor(265, 130);
   tft.println(tempStr);
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY);
+
   String feelStr = "(" + String((int)round(_apparentTemperature)) + "°C)";
   tft.setCursor(265, 185);
   tft.println(feelStr);
 
   tft.setFreeFont(&FreeSans18pt7b);
   tft.setTextColor(TFT_LIGHTGREY);
-  int16_t codeWidth = tft.textWidth(_weatherText(_weatherCode));
+
+  String text = String(_weatherText(_displayWeatherCode));
+  if (_morningFog && _displayWeatherCode != 45 && _displayWeatherCode != 48) {
+    text = "Morgens Nebel";
+  }
+
+  int16_t codeWidth = tft.textWidth(text);
   tft.setCursor((tft.width() - codeWidth) / 2, 265);
-  tft.println(_weatherText(_weatherCode));
-}
-
-// ---------------------------------------------------------------------------
-// fetchForecast() – 4-Tages-Tagesdaten (kein API-Key erforderlich)
-// ---------------------------------------------------------------------------
-void fetchForecast() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[Forecast] Kein WLAN – überspringe Abruf");
-    return;
-  }
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  http.begin(client, FORECAST_URL);
-  http.setTimeout(8000);
-  http.addHeader("Accept-Encoding", "identity");
-  http.addHeader("User-Agent", "lumiclock/1.0");
-  int httpCode = http.GET();
-
-  if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("[Forecast] HTTP-Fehler: %d\n", httpCode);
-    http.end();
-    return;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  if (payload.length() == 0) {
-    Serial.println("[Forecast] Leere Antwort");
-    return;
-  }
-
-  StaticJsonDocument<2048> doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    Serial.printf("[Forecast] JSON-Fehler: %s\n", err.c_str());
-    return;
-  }
-
-  JsonArray codes  = doc["daily"]["weather_code"];
-  JsonArray maxT   = doc["daily"]["temperature_2m_max"];
-  JsonArray minT   = doc["daily"]["temperature_2m_min"];
-  JsonArray precip = doc["daily"]["precipitation_probability_max"];
-
-  for (int i = 0; i < 4; i++) {
-    _forecast[i].weatherCode = codes[i]  | 0;
-    _forecast[i].tempMax     = maxT[i]   | 0.0f;
-    _forecast[i].tempMin     = minT[i]   | 0.0f;
-    _forecast[i].precipProb  = precip[i] | 0;
-  }
-  _forecastValid = true;
-  Serial.printf("[Forecast] OK – Codes: %d/%d/%d/%d\n",
-    _forecast[0].weatherCode, _forecast[1].weatherCode,
-    _forecast[2].weatherCode, _forecast[3].weatherCode);
-}
-
-// ---------------------------------------------------------------------------
-// renderForecast() – kompakte 3-Spalten-Tagesübersicht
-// ---------------------------------------------------------------------------
-
-static const char* _iconFilenameSmall(int iconNum) {
-  static char buf[13];
-  sprintf(buf, "/%02d-xs.png", iconNum);
-  return buf;
-}
-
-// Tomohiko Sakamoto – gibt 0=So, 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa zurück
-static int _weekdayFromDate(int d, int m, int y) {
-  static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
-  if (m < 3) y--;
-  return (y + y/4 - y/100 + y/400 + t[m-1] + d) % 7;
-}
-
-static const char* _dayLabel(int dayIndex, int todayWeekday) {
-  if (dayIndex == 0) return "heute";
-  if (dayIndex == 1) return "morgen";
-  static const char* names[] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
-  return names[(todayWeekday + dayIndex) % 7];
-}
-
-void renderForecast() {
-  tft.fillScreen(TFT_BLACK);
-
-  if (!_forecastValid) {
-    tft.setFreeFont(&Baloo2_Bold24pt8b);
-    tft.setTextColor(TFT_WHITE);
-    tft.setCursor(20, 80);
-    tft.println("Keine Prognosedaten");
-    return;
-  }
-
-  int today_d, today_m, today_y;
-  getCurrentDate(today_d, today_m, today_y);
-  int todayWeekday = _weekdayFromDate(today_d, today_m, today_y);
-  int startIndex   = (getCurrentHour() >= 14) ? 1 : 0;
-
-  const int COL_W = 160;
-
-  // Trennlinien
-  tft.drawFastVLine(COL_W + 10,     0, 320, TFT_DARKGREY);
-  tft.drawFastVLine(2 * COL_W + 10, 0, 320, TFT_DARKGREY);
-
-  for (int col = 0; col < 3; col++) {
-    int dayIdx = startIndex + col;
-    const ForecastDay& d = _forecast[dayIdx];
-    int cx = col * COL_W + COL_W / 2;  // Spaltenmitte
-
-    // --- Tagesname ---
-    tft.setFreeFont(&Baloo2_Bold24pt8b);
-    tft.setTextSize(1);
-    tft.setTextColor(TFT_WHITE);
-    const char* label = _dayLabel(dayIdx, todayWeekday);
-    int lw = tft.textWidth(label);
-    tft.setCursor(cx - lw / 2, 35);
-    tft.print(label);
-
-    // --- Wetter-Icon (klein) ---
-    int iconNum = _wmoToIcon(d.weatherCode, true);
-    drawPNG(_iconFilenameSmall(iconNum), cx - 40, 45);
-
-    // --- Höchsttemperatur (rot) ---
-    tft.setFreeFont(&Baloo2_Bold24pt8b);
-    tft.setTextSize(1);
-    tft.setTextColor(TFT_RED);
-    String maxStr = String((int)round(d.tempMax)) + "\xB0";
-    int mxw = tft.textWidth(maxStr);
-    tft.setCursor(cx - mxw / 2, 180);
-    tft.print(maxStr);
-
-    // --- Tiefsttemperatur (blau) ---
-    tft.setTextColor(TFT_BLUE);
-    String minStr = String((int)round(d.tempMin)) + "\xB0";
-    int mnw = tft.textWidth(minStr);
-    tft.setCursor(cx - mnw / 2, 235);
-    tft.print(minStr);
-
-    // --- Regenwahrscheinlichkeit (blau) ---
-    tft.setTextColor(TFT_CYAN);
-    String rainStr = String(d.precipProb) + "%";
-    int rw = tft.textWidth(rainStr);
-    tft.setCursor(cx - rw / 2, 290);
-    tft.print(rainStr);
-  }
+  tft.println(text);
 }
 
 #endif
