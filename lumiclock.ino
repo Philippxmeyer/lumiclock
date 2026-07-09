@@ -195,7 +195,7 @@ void setup() {
   tft.println("Wetter...");
   initWeather();    // setzt Koordinaten / URL zusammen
   fetchWeather();   // erster API-Abruf
-  fetchForecast();  // 4-Tages-Prognose vorladen
+  fetchForecast();  // 3-Tages-Prognose vorladen
   tft.println("Bereit!");
 
   delay(1000);

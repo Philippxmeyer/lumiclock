@@ -6,6 +6,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
+#include <string.h>
 #include "Baloo2_Bold40pt7b.h"
 #include "Baloo2_Bold24pt8b.h"
 
@@ -85,8 +86,7 @@ static const char* _weatherText(int code) {
   return "Unbekannt";
 }
 
-// ---------------------------------------------------------------------------
-// Tages-Prognose – gecachte Daten (4 Tage)
+// Tages-Prognose - gecachte Daten (3 Tage)
 // ---------------------------------------------------------------------------
 struct ForecastDay {
   int   weatherCode;
@@ -95,16 +95,120 @@ struct ForecastDay {
   int   precipProb;
 };
 
-static ForecastDay _forecast[4];
+static const int FORECAST_DAYS = 3;
+static ForecastDay _forecast[FORECAST_DAYS];
 static bool        _forecastValid = false;
 
 #define FORECAST_URL \
   "https://api.open-meteo.com/v1/forecast" \
   "?latitude=" WEATHER_LAT \
   "&longitude=" WEATHER_LON \
+  "&hourly=weather_code,precipitation_probability,precipitation" \
   "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" \
-  "&forecast_days=4" \
+  "&forecast_days=3" \
   "&timezone=Europe%2FBerlin"
+
+static bool _isThunderCode(int code) {
+  return code >= 95 && code <= 99;
+}
+
+static bool _isRainCode(int code) {
+  return (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+}
+
+static bool _isSnowCode(int code) {
+  return (code >= 71 && code <= 77) || code == 85 || code == 86;
+}
+
+static bool _isFogCode(int code) {
+  return code == 45 || code == 48;
+}
+
+static int _rainSeverity(int code) {
+  if (code == 82 || code == 65 || code == 67) return 4;
+  if (code == 81 || code == 63 || code == 57 || code == 55) return 3;
+  if (code == 80 || code == 61 || code == 56 || code == 53) return 2;
+  if (code == 51) return 1;
+  return 0;
+}
+
+static int _pickDayWeatherCode(JsonArray times, JsonArray codes, JsonArray probs,
+                               JsonArray precip, const char* dayDate,
+                               int fallbackCode) {
+  int clearHours = 0;
+  int mostlyClearHours = 0;
+  int partlyCloudyHours = 0;
+  int overcastHours = 0;
+  int fogHours = 0;
+  int rainHours = 0;
+  int snowHours = 0;
+  int thunderCode = 0;
+  int bestRainCode = 0;
+  int bestRainSeverity = 0;
+  int bestSnowCode = 0;
+  int hoursSeen = 0;
+  int maxProb = 0;
+  float precipTotal = 0.0f;
+
+  for (size_t i = 0; i < times.size(); i++) {
+    const char* ts = times[i];
+    if (!ts || strncmp(ts, dayDate, 10) != 0) continue;
+
+    int hour = ((ts[11] - '0') * 10) + (ts[12] - '0');
+    if (hour < 10 || hour > 18) continue;
+
+    int code = codes[i] | fallbackCode;
+    int prob = probs[i] | 0;
+    float amount = precip[i] | 0.0f;
+
+    hoursSeen++;
+    if (prob > maxProb) maxProb = prob;
+    precipTotal += amount;
+
+    if (_isThunderCode(code)) {
+      thunderCode = code;
+    } else if (_isRainCode(code)) {
+      rainHours++;
+      int severity = _rainSeverity(code);
+      if (severity > bestRainSeverity) {
+        bestRainSeverity = severity;
+        bestRainCode = code;
+      }
+    } else if (_isSnowCode(code)) {
+      snowHours++;
+      bestSnowCode = code;
+    } else if (_isFogCode(code)) {
+      fogHours++;
+    } else if (code == 0) {
+      clearHours++;
+    } else if (code == 1) {
+      mostlyClearHours++;
+    } else if (code == 2) {
+      partlyCloudyHours++;
+    } else if (code == 3) {
+      overcastHours++;
+    }
+  }
+
+  if (hoursSeen == 0) return fallbackCode;
+
+  if (thunderCode != 0) return thunderCode;
+  if (precipTotal >= 0.7f || maxProb >= 60 || rainHours >= 2) {
+    if (bestRainCode != 0) return bestRainCode;
+    return (precipTotal >= 3.0f || maxProb >= 80) ? 63 : 61;
+  }
+  if (snowHours >= 2) return bestSnowCode;
+  if (fogHours >= 4) return 45;
+
+  int brightHours = clearHours + mostlyClearHours;
+  int cloudHours = partlyCloudyHours + overcastHours;
+  if (clearHours >= 5 && overcastHours <= 1) return 0;
+  if (brightHours >= 5) return 1;
+  if (overcastHours >= 6) return 3;
+  if (cloudHours >= 5) return 2;
+  if (partlyCloudyHours > 0) return 2;
+  return fallbackCode;
+}
 
 // ---------------------------------------------------------------------------
 // initWeather()
@@ -206,8 +310,7 @@ tft.setTextColor(TFT_RED);
   tft.println(_weatherText(_weatherCode));
 }
 
-// ---------------------------------------------------------------------------
-// fetchForecast() – 4-Tages-Tagesdaten (kein API-Key erforderlich)
+// fetchForecast() - 3-Tages-Prognose mit Tages- und Stundenwerten
 // ---------------------------------------------------------------------------
 void fetchForecast() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -239,28 +342,36 @@ void fetchForecast() {
     return;
   }
 
-  StaticJsonDocument<2048> doc;
+  DynamicJsonDocument doc(24576);
   DeserializationError err = deserializeJson(doc, payload);
   if (err) {
     Serial.printf("[Forecast] JSON-Fehler: %s\n", err.c_str());
     return;
   }
 
-  JsonArray codes  = doc["daily"]["weather_code"];
-  JsonArray maxT   = doc["daily"]["temperature_2m_max"];
-  JsonArray minT   = doc["daily"]["temperature_2m_min"];
-  JsonArray precip = doc["daily"]["precipitation_probability_max"];
+  JsonArray dayDates      = doc["daily"]["time"];
+  JsonArray dailyCodes    = doc["daily"]["weather_code"];
+  JsonArray maxT          = doc["daily"]["temperature_2m_max"];
+  JsonArray minT          = doc["daily"]["temperature_2m_min"];
+  JsonArray dailyProb     = doc["daily"]["precipitation_probability_max"];
+  JsonArray hourlyTimes   = doc["hourly"]["time"];
+  JsonArray hourlyCodes   = doc["hourly"]["weather_code"];
+  JsonArray hourlyProb    = doc["hourly"]["precipitation_probability"];
+  JsonArray hourlyPrecip  = doc["hourly"]["precipitation"];
 
-  for (int i = 0; i < 4; i++) {
-    _forecast[i].weatherCode = codes[i]  | 0;
-    _forecast[i].tempMax     = maxT[i]   | 0.0f;
-    _forecast[i].tempMin     = minT[i]   | 0.0f;
-    _forecast[i].precipProb  = precip[i] | 0;
+  for (int i = 0; i < FORECAST_DAYS; i++) {
+    const char* dayDate = dayDates[i] | "";
+    int fallbackCode = dailyCodes[i] | 0;
+    _forecast[i].weatherCode = _pickDayWeatherCode(hourlyTimes, hourlyCodes, hourlyProb,
+                                                   hourlyPrecip, dayDate, fallbackCode);
+    _forecast[i].tempMax     = maxT[i]      | 0.0f;
+    _forecast[i].tempMin     = minT[i]      | 0.0f;
+    _forecast[i].precipProb  = dailyProb[i] | 0;
   }
   _forecastValid = true;
-  Serial.printf("[Forecast] OK – Codes: %d/%d/%d/%d\n",
+  Serial.printf("[Forecast] OK - Codes 10-18 Uhr: %d/%d/%d\n",
     _forecast[0].weatherCode, _forecast[1].weatherCode,
-    _forecast[2].weatherCode, _forecast[3].weatherCode);
+    _forecast[2].weatherCode);
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +412,7 @@ void renderForecast() {
   int today_d, today_m, today_y;
   getCurrentDate(today_d, today_m, today_y);
   int todayWeekday = _weekdayFromDate(today_d, today_m, today_y);
-  int startIndex   = (getCurrentHour() >= 14) ? 1 : 0;
+  int startIndex   = 0;
 
   const int COL_W = 160;
 
@@ -309,7 +420,7 @@ void renderForecast() {
   tft.drawFastVLine(COL_W + 10,     0, 320, TFT_DARKGREY);
   tft.drawFastVLine(2 * COL_W + 10, 0, 320, TFT_DARKGREY);
 
-  for (int col = 0; col < 3; col++) {
+  for (int col = 0; col < FORECAST_DAYS; col++) {
     int dayIdx = startIndex + col;
     const ForecastDay& d = _forecast[dayIdx];
     int cx = col * COL_W + COL_W / 2;  // Spaltenmitte
