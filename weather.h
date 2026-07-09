@@ -86,6 +86,27 @@ static const char* _weatherText(int code) {
 }
 
 // ---------------------------------------------------------------------------
+// Tages-Prognose – gecachte Daten (4 Tage)
+// ---------------------------------------------------------------------------
+struct ForecastDay {
+  int   weatherCode;
+  float tempMax;
+  float tempMin;
+  int   precipProb;
+};
+
+static ForecastDay _forecast[4];
+static bool        _forecastValid = false;
+
+#define FORECAST_URL \
+  "https://api.open-meteo.com/v1/forecast" \
+  "?latitude=" WEATHER_LAT \
+  "&longitude=" WEATHER_LON \
+  "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" \
+  "&forecast_days=4" \
+  "&timezone=Europe%2FBerlin"
+
+// ---------------------------------------------------------------------------
 // initWeather()
 // ---------------------------------------------------------------------------
 void initWeather() {
@@ -163,7 +184,7 @@ void renderWeather() {
   }
 
   int iconNum = _wmoToIcon(_weatherCode, _isDay);
-  drawPNG(_iconFilename(iconNum), 10, 90);
+  drawPNG(_iconFilename(iconNum), 20, 50);
 
 tft.setFreeFont(&Baloo2_Bold24pt8b);
 tft.setTextSize(2);
@@ -183,6 +204,152 @@ tft.setTextColor(TFT_RED);
   int16_t codeWidth = tft.textWidth(_weatherText(_weatherCode));
   tft.setCursor((tft.width() - codeWidth) / 2, 265);
   tft.println(_weatherText(_weatherCode));
+}
+
+// ---------------------------------------------------------------------------
+// fetchForecast() – 4-Tages-Tagesdaten (kein API-Key erforderlich)
+// ---------------------------------------------------------------------------
+void fetchForecast() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[Forecast] Kein WLAN – überspringe Abruf");
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.begin(client, FORECAST_URL);
+  http.setTimeout(8000);
+  http.addHeader("Accept-Encoding", "identity");
+  http.addHeader("User-Agent", "lumiclock/1.0");
+  int httpCode = http.GET();
+
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("[Forecast] HTTP-Fehler: %d\n", httpCode);
+    http.end();
+    return;
+  }
+
+  String payload = http.getString();
+  http.end();
+
+  if (payload.length() == 0) {
+    Serial.println("[Forecast] Leere Antwort");
+    return;
+  }
+
+  StaticJsonDocument<2048> doc;
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    Serial.printf("[Forecast] JSON-Fehler: %s\n", err.c_str());
+    return;
+  }
+
+  JsonArray codes  = doc["daily"]["weather_code"];
+  JsonArray maxT   = doc["daily"]["temperature_2m_max"];
+  JsonArray minT   = doc["daily"]["temperature_2m_min"];
+  JsonArray precip = doc["daily"]["precipitation_probability_max"];
+
+  for (int i = 0; i < 4; i++) {
+    _forecast[i].weatherCode = codes[i]  | 0;
+    _forecast[i].tempMax     = maxT[i]   | 0.0f;
+    _forecast[i].tempMin     = minT[i]   | 0.0f;
+    _forecast[i].precipProb  = precip[i] | 0;
+  }
+  _forecastValid = true;
+  Serial.printf("[Forecast] OK – Codes: %d/%d/%d/%d\n",
+    _forecast[0].weatherCode, _forecast[1].weatherCode,
+    _forecast[2].weatherCode, _forecast[3].weatherCode);
+}
+
+// ---------------------------------------------------------------------------
+// renderForecast() – kompakte 3-Spalten-Tagesübersicht
+// ---------------------------------------------------------------------------
+
+static const char* _iconFilenameSmall(int iconNum) {
+  static char buf[13];
+  sprintf(buf, "/%02d-xs.png", iconNum);
+  return buf;
+}
+
+// Tomohiko Sakamoto – gibt 0=So, 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa zurück
+static int _weekdayFromDate(int d, int m, int y) {
+  static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+  if (m < 3) y--;
+  return (y + y/4 - y/100 + y/400 + t[m-1] + d) % 7;
+}
+
+static const char* _dayLabel(int dayIndex, int todayWeekday) {
+  if (dayIndex == 0) return "heute";
+  if (dayIndex == 1) return "morgen";
+  static const char* names[] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+  return names[(todayWeekday + dayIndex) % 7];
+}
+
+void renderForecast() {
+  tft.fillScreen(TFT_BLACK);
+
+  if (!_forecastValid) {
+    tft.setFreeFont(&Baloo2_Bold24pt8b);
+    tft.setTextColor(TFT_WHITE);
+    tft.setCursor(20, 80);
+    tft.println("Keine Prognosedaten");
+    return;
+  }
+
+  int today_d, today_m, today_y;
+  getCurrentDate(today_d, today_m, today_y);
+  int todayWeekday = _weekdayFromDate(today_d, today_m, today_y);
+  int startIndex   = (getCurrentHour() >= 14) ? 1 : 0;
+
+  const int COL_W = 160;
+
+  // Trennlinien
+  tft.drawFastVLine(COL_W + 10,     0, 320, TFT_DARKGREY);
+  tft.drawFastVLine(2 * COL_W + 10, 0, 320, TFT_DARKGREY);
+
+  for (int col = 0; col < 3; col++) {
+    int dayIdx = startIndex + col;
+    const ForecastDay& d = _forecast[dayIdx];
+    int cx = col * COL_W + COL_W / 2;  // Spaltenmitte
+
+    // --- Tagesname ---
+    tft.setFreeFont(&Baloo2_Bold24pt8b);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE);
+    const char* label = _dayLabel(dayIdx, todayWeekday);
+    int lw = tft.textWidth(label);
+    tft.setCursor(cx - lw / 2, 35);
+    tft.print(label);
+
+    // --- Wetter-Icon (klein) ---
+    int iconNum = _wmoToIcon(d.weatherCode, true);
+    drawPNG(_iconFilenameSmall(iconNum), cx - 40, 45);
+
+    // --- Höchsttemperatur (rot) ---
+    tft.setFreeFont(&Baloo2_Bold24pt8b);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_RED);
+    String maxStr = String((int)round(d.tempMax)) + "\xB0";
+    int mxw = tft.textWidth(maxStr);
+    tft.setCursor(cx - mxw / 2, 180);
+    tft.print(maxStr);
+
+    // --- Tiefsttemperatur (blau) ---
+    tft.setTextColor(TFT_BLUE);
+    String minStr = String((int)round(d.tempMin)) + "\xB0";
+    int mnw = tft.textWidth(minStr);
+    tft.setCursor(cx - mnw / 2, 235);
+    tft.print(minStr);
+
+    // --- Regenwahrscheinlichkeit (blau) ---
+    tft.setTextColor(TFT_CYAN);
+    String rainStr = String(d.precipProb) + "%";
+    int rw = tft.textWidth(rainStr);
+    tft.setCursor(cx - rw / 2, 290);
+    tft.print(rainStr);
+  }
 }
 
 #endif

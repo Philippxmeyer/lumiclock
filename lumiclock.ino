@@ -21,8 +21,8 @@
                                 //   setNightLight(), turnOffRingLight()
 #include "touch_control.h"      // initTouch(), handleTouch(),
                                 //   isBacklightActive()
-#include "weather.h"            // initWeather(), fetchWeather(),
-                                //   renderWeather()
+#include "weather.h"            // initWeather(), fetchWeather(), renderWeather(),
+                                //   fetchForecast(), renderForecast()
 #include "moon_phase.h"         // renderMoonPhase()
 #include "display_time.h"       // displayTime(hours, minutes)
 #include "Baloo2_Bold40pt7b.h"
@@ -193,8 +193,9 @@ void setup() {
 
   // Wetter beim Start einmal laden
   tft.println("Wetter...");
-  initWeather();   // setzt Koordinaten / URL zusammen
-  fetchWeather();  // erster API-Abruf
+  initWeather();    // setzt Koordinaten / URL zusammen
+  fetchWeather();   // erster API-Abruf
+  fetchForecast();  // 4-Tages-Prognose vorladen
   tft.println("Bereit!");
 
   delay(1000);
@@ -244,6 +245,14 @@ void loop() {
       }
       break;
     }
+
+    case STATE_FORECAST: {
+      if (!stateRendered) {
+        stateRendered = true;
+        renderForecast();
+      }
+      break;
+    }
   }
 
   // --- Wetterdaten periodisch aktualisieren ----------------------------------
@@ -251,8 +260,9 @@ void loop() {
   if (millis() - lastWeatherFetch > WEATHER_INTERVAL_MS) {
     lastWeatherFetch = millis();
     fetchWeather();
-    // Falls gerade Wetter angezeigt wird: neu zeichnen
-    if (isWeatherState()) stateRendered = false;
+    fetchForecast();
+    // Falls gerade Wetter- oder Prognoseansicht aktiv: neu zeichnen
+    if (isWeatherState() || isForecastState()) stateRendered = false;
   }
 
   // --- Nachtmodus ------------------------------------------------------------

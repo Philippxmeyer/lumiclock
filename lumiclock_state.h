@@ -13,6 +13,7 @@ enum DisplayState {
   STATE_CLOCK,    // Uhrzeit + Datum
   STATE_WEATHER,  // Wetterdaten
   STATE_MOON,     // Mondphase
+  STATE_FORECAST, // 3-Tages-Prognose
 };
 
 DisplayState  currentState    = STATE_CLOCK;
@@ -45,8 +46,9 @@ void updateState() {
 }
 
 // Lesbare Abfragen für die .ino
-bool isClockState()   { return currentState == STATE_CLOCK;   }
-bool isWeatherState() { return currentState == STATE_WEATHER; }
-bool isMoonState()    { return currentState == STATE_MOON;    }
+bool isClockState()    { return currentState == STATE_CLOCK;    }
+bool isWeatherState()  { return currentState == STATE_WEATHER;  }
+bool isMoonState()     { return currentState == STATE_MOON;     }
+bool isForecastState() { return currentState == STATE_FORECAST; }
 
 #endif

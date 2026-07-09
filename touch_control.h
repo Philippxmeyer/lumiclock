@@ -88,9 +88,14 @@ void handleTouch() {
   if (_touchWeather) {
     _touchWeather = false;
     if (_isTouchAccepted(TOUCH_PIN_WEATHER, _touchThresholdWeather)) {
-      setState(STATE_WEATHER);
+      if (isWeatherState()) {
+        setState(STATE_FORECAST);
+        Serial.println("[Touch] Wettervorhersage");
+      } else {
+        setState(STATE_WEATHER);
+        Serial.println("[Touch] Wetter");
+      }
       _activateBacklight();
-      Serial.println("[Touch] Wetter");
     }
   }
 
