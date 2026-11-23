@@ -6,11 +6,13 @@
 
 ## Was ist das?
 
-**Lumiclock** ist ein Arduino/ESP32-Projekt für ein 3.5" TFT-Display (480×320), das drei Hauptansichten bietet:
+**Lumiclock** ist ein Arduino/ESP32-Projekt für ein 3.5" TFT-Display (480×320), das fünf Ansichten bietet:
 
 1. **Uhrzeit + Datum**
 2. **Wetter** (über Open-Meteo, ohne API-Key)
 3. **Mondphase** (lokal berechnet)
+4. **Tagesviertel-Vorhersage** (die nächsten drei Sechsstundenblöcke)
+5. **Drei-Tage-Wetterprognose** (bis 14 Uhr heute/+1/+2, ab 14 Uhr +1/+2/+3)
 
 Gesteuert wird das Ganze über **kapazitive Touch-Pads** (T6/T7/T8). Zusätzlich gibt’s einen **NeoPixel-Ring** als Nachtlicht und **OTA-Updates**, damit du Firmware nicht jedes Mal per Kabel einspielen musst wie im Mittelalter von 2014.
 
@@ -19,7 +21,8 @@ Gesteuert wird das Ganze über **kapazitive Touch-Pads** (T6/T7/T8). Zusätzlich
 ## Features (aka „Warum das Teil cool ist“)
 
 - **Große, gut lesbare Uhrzeitanzeige** mit Datum auf Deutsch.
-- **Wetterdaten in Echtzeit** (Temperatur, gefühlte Temperatur, Wetterzustand + Icon).
+- **Aktuelle Wetterdaten mit Abruf alle 30 Minuten** (Temperatur, gefühlte Temperatur, Wetterzustand + Icon).
+- **Tagesviertel- und Drei-Tage-Prognose** mit Wetter-Icon, Höchst-/Tiefsttemperatur und Niederschlagswahrscheinlichkeit im gleichen Drei-Spalten-Layout.
 - **Mondphasenanzeige** inkl. Namen und Mondalter.
 - **Touch-UI mit Entprellung und Fehltrigger-Schutz**.
 - **Nachtmodus** (Display-Hintergrundlicht aus, sanftes Ringlicht an).
@@ -41,10 +44,20 @@ Das Projekt geht (laut Code) von folgender Verdrahtung aus:
   - LEDs: **8**
 - **Touch-Eingänge**:
   - Uhr: **T6**
-  - Wetter: **T7**
+  - Wetter / Prognose: **T7**
   - Mond: **T8**
 
-Wenn deine Pins anders sind: keine Panik, nur Header anpassen. (Ja, man muss manchmal tatsächlich Code ändern.)
+Die Touch-Pins stehen in `touch_control.h`, die Ring-Konfiguration in `ring_light.h` und der Backlight-Pin als `TFT_LED` in `lumiclock.ino`. Displaytreiber und Display-Pins stehen projektlokal in `tft_setup.h`, übernommen aus der funktionierenden Hardwarekonfiguration:
+
+| Displayeinstellung | Wert |
+|---|---|
+| Treiber / Auflösung quer | ILI9488 / 480×320 |
+| MOSI / SCLK | GPIO 23 / 18 |
+| CS / DC / RST | GPIO 5 / 17 / 16 |
+| MISO | nicht angeschlossen |
+| SPI-Frequenz / Farbreihenfolge | 27 MHz / BGR |
+
+Die Hintergrundbeleuchtung steuert der Sketch an GPIO 4. Die projektlokale Konfiguration verhindert, dass der Default einer anderen TFT_eSPI-Installation abweichende Treiber oder Pins auswählt.
 
 ---
 
@@ -53,16 +66,25 @@ Wenn deine Pins anders sind: keine Panik, nur Header anpassen. (Ja, man muss man
 Das Projekt ist modular in Header-Dateien aufgeteilt:
 
 - `lumiclock.ino` – Setup/Loop, Display-Rendering-Flow, Nachtmodus, PNG-Decoder-Callbacks
-- `lumiclock_state.h` – State Machine (`STATE_CLOCK`, `STATE_WEATHER`, `STATE_MOON`)
+- `lumiclock_state.h` – State Machine (`STATE_CLOCK`, `STATE_WEATHER`, `STATE_MOON`, `STATE_QUARTER_FORECAST`, `STATE_FORECAST`)
 - `touch_control.h` – Touch-Interrupts, Debounce, Backlight-Wakeup-Logik
 - `display_time.h` – Uhrzeit/Datum rendern
-- `weather.h` – Wetterabruf via HTTPS + JSON Parsing + Rendering
-- `moon_phase.h` – Mondphasenberechnung + Rendering
+- `weather.h` – Wetter- und Prognoseabruf via HTTPS und Rendering
+- `forecast_data.h` – JSON-Auswertung, Tages-/Viertelcache und zeitabhängige Auswahl
+- `moon_phase.h` – Näherungsberechnung der Mondphase aus dem Datum + Rendering
 - `ring_light.h` – NeoPixel-Ringsteuerung/Nachtlicht
 - `ntp_client.h` – NTP + Zeitzonenhandling (inkl. Sommerzeit)
 - `ota_update.h` – ArduinoOTA Integration
+- `wifi_credentials.h` – lokale WLAN-Zugangsdaten; durch `.gitignore` ausgeschlossen
+- `wifi_connection.h` – WLAN-Verbindungsaufbau mit Erfolgsprüfung und Zeitlimit
+- `Baloo2_*.h` – eingebettete Schriftarten
+- `build_opt.h` / `lumiclock_build.h` – projektweite Auswahl der tatsächlich genutzten TFT-Schriften
+- `tft_setup.h` – feste ILI9488-Hardwarekonfiguration für ESP32-WROOM, unabhängig von lokalen Library-Defaults
+- `data/` – PNG-Dateien für das LittleFS-Dateisystem
 
-Kurz gesagt: **eine kleine Embedded-App mit sauberer Zustandslogik statt 800 Zeilen im `loop()`-Kessel**.
+`lumiclock.ino` verbindet die Module. Die Header enthalten neben Deklarationen auch Funktionsdefinitionen und globale Variablen; gemeinsame Objekte wie `tft` werden über `extern` genutzt. Die Einbindereihenfolge ist daher teilweise wichtig.
+
+`loop()` verarbeitet OTA, Touch-Ereignisse, Zustandswechsel, Anzeige, Wetterabrufe und Nachtmodus nacheinander. `stateRendered` verhindert unnötiges Neuzeichnen; die Uhr wird zusätzlich beim Minutenwechsel aktualisiert. Sie wird in einem wiederverwendeten 1-Bit-Bildpuffer vorbereitet (rund 19 KB RAM), bevor die geänderten Bildbereiche auf den TFT übertragen werden. Dadurch entfällt das sichtbare Vollbild-Löschen beim Minutenwechsel; das unveränderte Datum wird nicht erneut übertragen. Ein erneuter Uhr-Touch aktiviert nur die Beleuchtung, ohne den bestehenden Bildinhalt zu löschen. Netzwerkabrufe blockieren den Ablauf zeitweise.
 
 ---
 
@@ -73,16 +95,24 @@ Kurz gesagt: **eine kleine Embedded-App mit sauberer Zustandslogik statt 800 Zei
 - `STATE_CLOCK`: Standardansicht
 - `STATE_WEATHER`: Wetteransicht
 - `STATE_MOON`: Mondansicht
+- `STATE_QUARTER_FORECAST`: nächste drei Tagesviertel
+- `STATE_FORECAST`: Drei-Tage-Prognose
 
-Nicht-Uhrzustände springen nach `STATE_TIMEOUT_MS` (10 Sekunden) automatisch zurück auf die Uhr.
+Nicht-Uhrzustände springen nach `STATE_TIMEOUT_MS` (10 Sekunden ab dem Zustandswechsel) automatisch zurück auf die Uhr. Eine erneute Auswahl desselben Zustands setzt diesen Timer nicht zurück.
 
 ### Touch-Verhalten
 
-- Touch löst Interrupt aus.
-- Danach wird die Berührung doppelt geprüft (`touchRead()` zweimal mit kurzem Abstand), um Fehlauslösungen zu reduzieren.
-- Zusätzliche Schutzmechanismen:
-  - Boot-Guard (`TOUCH_BOOT_GUARD_MS`)
-  - Debounce (`TOUCH_DEBOUNCE_MS`)
+| Touch-Pad | Aktion |
+|---|---|
+| T6 | Uhr anzeigen; Ringlicht vorübergehend auf Warmweiß mit Helligkeit 20 setzen |
+| T7 | Aktuelles Wetter → nächste drei Tagesviertel → Drei-Tage-Prognose → aktuelles Wetter; aus Uhr/Mond beginnt die Folge mit aktuellem Wetter |
+| T8 | Mondphase anzeigen |
+
+- Der Touch-Interrupt setzt nur ein Flag; die eigentliche Verarbeitung erfolgt in `loop()`.
+- Die Auslöseschwellen werden beim Start auf 50 % des jeweiligen Leerlaufwerts gesetzt.
+- Danach wird die Berührung doppelt geprüft (`touchRead()` zweimal mit 8 ms Abstand), um Fehlauslösungen zu reduzieren.
+- Zusätzliche Schutzmechanismen: 2 Sekunden Boot-Guard (`TOUCH_BOOT_GUARD_MS`) und 350 ms Entprellzeit (`TOUCH_DEBOUNCE_MS`).
+- Jede akzeptierte Berührung aktiviert die Displaybeleuchtung für 10 Sekunden (`BACKLIGHT_TIMEOUT_MS`). Dieser Timer wird bei jeder akzeptierten Berührung neu gestartet und ist unabhängig vom Ansichts-Timeout.
 
 Ja, kapazitiver Touch kann zickig sein. Nein, du bist damit nicht allein.
 
@@ -91,11 +121,26 @@ Ja, kapazitiver Touch kann zickig sein. Nein, du bist damit nicht allein.
 ## Wetterdaten
 
 - Quelle: **Open-Meteo**
-- Abfrageintervall: **alle 30 Minuten**
+- Abruf: **beim Start, danach alle 30 Minuten**; aktuelles Wetter und Prognose werden getrennt abgefragt
+- Anzeige: zwischengespeicherte Daten aus dem RAM, kein zusätzlicher Abruf beim Öffnen einer Ansicht
 - Verbindung: HTTPS via `WiFiClientSecure`
 - Hinweis: `setInsecure()` ist aktiv (Zertifikatsprüfung deaktiviert)
 
 Das ist für ein Hobby-/Hausgerät oft okay, sicherheitstechnisch aber nicht „Enterprise-grade Zero-Trust Space Station Security™“. Wer’s härter will: Root-CA pinnen.
+
+### Tagesviertel-Vorhersage
+
+Die zweite Wetteransicht zeigt die nächsten drei vollständigen Tagesviertel; das gerade laufende Viertel wird übersprungen. Die Einteilung erfolgt in Ortszeit: Nacht 00–06 Uhr, Vormittag 06–12 Uhr, Nachmittag 12–18 Uhr und Abend 18–24 Uhr. Um 10 Uhr erscheinen somit Nachmittag/Abend/Nacht, um 20 Uhr Nacht/Vormittag/Nachmittag des Folgetags.
+
+Das Layout entspricht der Drei-Tage-Prognose. Höchst-/Tiefsttemperatur, maximale Niederschlagswahrscheinlichkeit und Wetter-Icon werden aus den Stundenwerten des jeweiligen Viertels gebildet. Abend und Nacht verwenden Nacht-Icons. Lange Viertelnamen werden in derselben Kopfzeile mit kleinerer Schrift vollständig angezeigt; Positionen, Farben, Trennlinien und Tagesprognose bleiben unverändert.
+
+### Drei-Tage-Prognose
+
+Vor 14:00 Uhr zeigt die Prognose heute, morgen und übermorgen. Ab genau 14:00 Uhr zeigt sie morgen, übermorgen und den darauffolgenden Tag. Die Beschriftung bleibt „heute“/„morgen“ bzw. der jeweilige Wochentag. Jede der drei Spalten enthält ein Wetter-Icon, die Tageshöchst- und Tagestiefsttemperatur sowie die maximale tägliche Niederschlagswahrscheinlichkeit. Dafür werden vier Prognosetage vorgehalten; beide Prognoseansichten werden zusammen alle 30 Minuten geladen.
+
+Die Cache-Einträge enthalten ihr API-Datum, damit sie nach Mitternacht korrekt zugeordnet bleiben. Fehlen die benötigten Tage oder vollständige Stundenwerte für ein angezeigtes Viertel, erscheint „Keine Prognosedaten“. Unvollständige Tagesantworten ersetzen den bisherigen Cache nicht.
+
+Für das Wetter-Icon werden die Stundenwerte von 10 bis einschließlich 18 Uhr ausgewertet. Dabei berücksichtigt der Code unter anderem Gewitter, Niederschlagsmenge und -wahrscheinlichkeit sowie die Häufigkeit von Regen, Schnee, Nebel und Bewölkung. Fehlen passende Stundenwerte, wird der tägliche Wettercode verwendet. Die Prognose nutzt Tag-Icons.
 
 ### Standort
 
@@ -119,6 +164,10 @@ Zeitzone ist als POSIX-String gesetzt:
 
 Das bedeutet automatische Sommer-/Winterzeitumschaltung für Mitteleuropa. Weil wir 2026 sind und man sowas nicht mehr manuell „if Monat > 3“ hacken sollte.
 
+Der Start wartet zunächst bis zu 20 Sekunden auf WLAN und meldet „WLAN OK“ erst bei tatsächlicher Verbindung. Danach wartet NTP höchstens rund 10 Sekunden auf eine gültige Systemzeit. Fehlt WLAN, wird die NTP-Warteschleife übersprungen. Die Synchronisation bleibt im Hintergrund aktiv; „Zeit OK“ erscheint erst bei gültiger Zeit. Alle Zeitabfragen lesen direkt mit `time()`/`localtime_r()` und prüfen die Gültigkeit ohne Wartezeit. `getLocalTime(..., 0)` wird vermieden: Dessen Timeout-Schleife kann bei einem Millisekundenwechsel vor dem ersten Lesen enden und dadurch eine gültige Zeit vorübergehend als ungültig melden.
+
+Die Mondphase wird ohne zusätzliche API näherungsweise aus einem Referenzneumond und einer festen Periodendauer von 29,53059 Tagen berechnet. Daraus entstehen acht Phasen mit Namen und der Anzeige „Tag … von 30“. Ein beleuchteter Prozentanteil wird nicht berechnet.
+
 ---
 
 ## Nachtmodus
@@ -128,7 +177,7 @@ Zwischen **19:00 und 07:00**:
 - TFT-Backlight aus (sofern nicht gerade durch Touch aktiv)
 - Ringlicht im sehr dunklen Warmweiß-Modus an
 
-Touch kann das Backlight temporär wieder aktivieren, danach greift ein Timeout.
+Touch kann das Backlight für 10 Sekunden wieder aktivieren. Währenddessen wird das Ringlicht vom Nachtmodus nicht verändert. Nach Ablauf wird nachts das schwache Nachtlicht gesetzt; tagsüber bleibt das Display an und der Ring wird ausgeschaltet. Das Nachtlicht verwendet jede zweite LED mit Helligkeit 2.
 
 ---
 
@@ -147,35 +196,67 @@ Beim OTA-Update zeigt das Display einen Fortschrittsbalken. Weil Fortschrittsbal
 
 ## Dateisystem / Assets
 
-Das Projekt erwartet PNG-Dateien im LittleFS (aus dem Ordner `data/`), u. a.:
+Das Projekt erwartet die PNG-Dateien aus dem Ordner `data/` im LittleFS:
 
-- Wetter-Icons: `01-s.png` bis `44-s.png` (je nach Mapping)
-- Mondphasen: `moon0.png` bis `moon7.png`
+- Aktuelles Wetter: `NN-s.png`, 135×135 Pixel
+- Prognose: `NN-xs.png`, 60×60 Pixel
+- Mondphasen: `moon0.png` bis `moon7.png`, 317×320 Pixel
 
-Beim Start wird ein kleiner Asset-Healthcheck geloggt. Fehlende Dateien führen nicht zu Weltuntergang, aber zu kaputten Anzeigen – was in der Praxis fast genauso nervig ist.
+`NN` ist die zweistellige Icon-Nummer aus der Zuordnung in `weather.h`. Enthalten sind 40 Wetter-Icons je Größe und acht Mondbilder, insgesamt 88 PNG-Dateien. Die Nummerierung der Wetter-Icons hat Lücken.
+
+Beim Start prüft ein kleiner Asset-Healthcheck nur `/01-s.png`, `/07-s.png`, `/moon0.png` und `/moon5.png`. Das ist keine vollständige Prüfung aller Bilder. Fehlende einzelne Dateien werden protokolliert; die jeweilige Grafik fehlt dann in der Anzeige.
+
+Kann LittleFS selbst nicht eingebunden werden, zeigt das Display „LittleFS FEHLER!“ und das Programm bleibt im Startvorgang stehen. Eine automatische Formatierung ist deaktiviert.
 
 ---
 
 ## Installation (kurz & ehrlich)
 
-1. **Arduino IDE** oder PlatformIO mit ESP32-Toolchain vorbereiten.
+1. **Arduino IDE** mit ESP32-Toolchain vorbereiten und das passende Board sowie ein Partitionsschema mit LittleFS und OTA-Unterstützung auswählen. Für PlatformIO muss eine eigene Konfiguration angelegt werden; das Repository enthält keine `platformio.ini`.
 2. Benötigte Libraries installieren (u. a. `TFT_eSPI`, `PNGdec`, `ArduinoJson`, `Adafruit_NeoPixel`, `ArduinoOTA`).
-3. Datei `wifi_credentials.h` anlegen (oder aus Vorlage übernehmen), mit:
+3. Die nicht versionierte Datei `wifi_credentials.h` anlegen, mit:
    - `WIFI_SSID`
    - `WIFI_PASSWORD`
-   - `connectToWiFi()`
-4. `TFT_eSPI` auf dein Display konfigurieren.
+   Die Verbindungslogik liegt in `wifi_connection.h`; eine private Funktion `connectToWiFi()` wird nicht mehr benötigt oder aufgerufen.
+4. `TFT_eSPI` installieren. Die mitgelieferte `tft_setup.h` enthält die ILI9488-Konfiguration der Lumiclock; Änderungen in der installierten Library sind nicht nötig. Bei anderer Hardware diese Projektdatei anpassen.
 5. Inhalte von `data/` als LittleFS-Image auf den ESP32 laden.
 6. Sketch flashen.
 
-Wenn Schritt 5 fehlt, wirst du sehr kreativ gestaltete schwarze Flächen sehen.
+Ohne gültiges LittleFS-Dateisystem bleibt das Programm beim Start stehen. Ist LittleFS vorhanden, fehlen aber die PNG-Dateien, läuft die Uhr mit fehlenden Grafiken weiter. Board-, Partitions- und Bibliotheksversionen sind im Repository nicht festgelegt.
+
+---
+
+## Tests und ESP32-Wroom-Build
+
+Native Tests (benötigt `g++`, Python 3 und die installierten ArduinoJson-/TFT_eSPI-Libraries):
+
+```sh
+bash tests/run_tests.sh
+```
+
+Geprüft werden alle Stunden des Tages, die Umschaltung ab 14 Uhr, Viertelwerte, Mitternacht/Jahreswechsel, unvollständige Daten, Cache-Erhalt sowie die echte Touch-Zustandsfolge mit Entprellung und Timeout. Startup-Tests prüfen verzögerten/fehlgeschlagenen WLAN-Aufbau, Verbindungsparameter, Zeitlimits, fehlende/später verfügbare NTP-Zeit und den Millisekundenfehler der früheren Zeitabfrage. Uhr-Renderingtests verwenden die echten Font-Bitmaps und prüfen Minuten-/Datumswechsel, wiederholte Darstellung ohne Neuzeichnen, Bildpuffernutzung, fehlenden Speicher sowie die Rückkehr aus anderen Ansichten ohne vorangestelltes Löschbild. Zusätzliche Tests vergleichen die verkleinerte Uhrenschrift mit den Original-Pixeln und prüfen ILI9488-Treiber, Pins, Farben, SPI-Einstellungen sowie die verwendeten TFT-Schriften. Ein absichtlich fehlerhafter globaler Library-Default darf die Projektkonfiguration nicht beeinflussen. Die Hardware und die Netzwerkantworten werden in diesen Tests ersetzt.
+
+Build für einen klassischen ESP32-WROOM mit 4 MB Flash und Standard-OTA-Partitionierung:
+
+```sh
+arduino-cli compile --fqbn esp32:esp32:esp32 --build-path /tmp/lumiclock-wroom-build --output-dir build/esp32-wroom .
+```
+
+Geprüft mit ESP32-Core 3.3.12 und TFT_eSPI 2.5.43. Die Firmware liegt anschließend in `build/esp32-wroom/lumiclock.ino.bin`. Der Build nutzt auf PC und Raspberry Pi dieselbe Hardwarekonfiguration aus `tft_setup.h`. Beim Start protokolliert die Firmware den tatsächlichen TFT-Treiber, die gedrehte Auflösung und die verwendeten SPI-/Steuerpins.
+
+### Flashbedarf reduzieren
+
+Die Uhr verwendet `Baloo2_Clock40pt7b.h`, einen Ausschnitt der ursprünglichen großen Baloo-Schrift mit Ziffern, Doppelpunkt und Minuszeichen für den Zeit-Platzhalter. Pixel, Zeichenabstände und Zeilenhöhe entsprechen dem Original. Die vollständige Quelldatei bleibt erhalten; mit `python3 tools/make_clock_font.py` lässt sich der Ausschnitt neu erzeugen.
+
+Der ESP32-Core übernimmt `build_opt.h` automatisch beim Bauen. Über `lumiclock_build.h` wird die Hardwarekonfiguration aus `tft_setup.h` auch beim Übersetzen der TFT_eSPI-Library verwendet. Unbenutzte Standardschriften 2/4/6/7/8 und die ungenutzte Smooth-Font-Unterstützung bleiben deaktiviert. Standardschrift 1 für Start-/OTA-Texte sowie sämtliche verwendeten GFX-Bitmapfonts sind verfügbar. Änderungen an der systemweit installierten Library sind dafür nicht erforderlich. Die OTA-Partitionierung bleibt gleich.
 
 ---
 
 ## Bekannte Besonderheiten
 
 - Einige Header nutzen Fonts wie `FreeSans18pt7b`; je nach Setup muss der Font in deiner Umgebung verfügbar/eingebunden sein.
-- Wetterdaten werden zwischengespeichert; ohne WLAN bleibt der letzte gültige Stand erhalten bzw. es erscheint „Keine Wetterdaten“.
+- WLAN-Zugangsdaten müssen zum tatsächlich verwendeten Netz passen. Fehlt die Verbindung trotz Start-Zeitlimit, bleibt die Uhr bedienbar, zeigt fehlende Zeit als Platzhalter an und aktiviert den automatischen WLAN-Wiederaufbau. Wetterabrufe ohne WLAN werden übersprungen; ein erneuter Abruf folgt beim regulären Wetterintervall.
+- Wetter- und Prognosedaten werden nur im RAM zwischengespeichert. Bei Abruffehlern bleibt der letzte gültige Stand der laufenden Sitzung erhalten. Nach einem Neustart ohne erfolgreichen Abruf erscheint „Keine Wetterdaten“ bzw. „Keine Prognosedaten“.
 - Das Projekt ist stark auf den aktuellen Display-/Layout-Usecase zugeschnitten – also absichtlich pragmatisch statt generisch.
 
 ---

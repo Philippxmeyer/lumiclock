@@ -11,7 +11,8 @@
 #include <ArduinoOTA.h>
 
 // --- Eigene Module (Reihenfolge ist wichtig) ---------------------------------
-#include "wifi_credentials.h"   // WIFI_SSID, WIFI_PASSWORD, connectToWiFi()
+#include "wifi_credentials.h"   // WIFI_SSID, WIFI_PASSWORD (nur lokale Zugangsdaten)
+#include "wifi_connection.h"    // initializeWiFi(): begrenzte Verbindungsprüfung
 #include "ntp_client.h"         // initializeNTP(), getFormattedHours/Minutes(),
                                 //   getCurrentHour/Minute(), getCurrentDate()
 #include "lumiclock_state.h"    // DisplayState, setState(), updateState(),
@@ -22,10 +23,9 @@
 #include "touch_control.h"      // initTouch(), handleTouch(),
                                 //   isBacklightActive()
 #include "weather.h"            // initWeather(), fetchWeather(), renderWeather(),
-                                //   fetchForecast(), renderForecast()
+                                //   fetchForecast(), renderForecast(), renderQuarterForecast()
 #include "moon_phase.h"         // renderMoonPhase()
 #include "display_time.h"       // displayTime(hours, minutes)
-#include "Baloo2_Bold40pt7b.h"
 #include "Baloo2_Bold24pt8b.h"
 //#include "FreeSans18pt7b.h"
 #include "ota_update.h"         // setupOTA(), handleOTA()
@@ -83,7 +83,7 @@ int32_t pngSeek(PNGFILE* handle, int32_t position) {
 int pngDraw(PNGDRAW* pDraw) {
   uint16_t lineBuffer[480];  // Breite des 3.5"-Displays (480px)
   png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xFFFFFFFF);
-  // X/Y-Offset wird von weather.h / moon_phase.h als extern gesetzt
+  // X/Y-Offset wird von drawPNG() aus den übergebenen Koordinaten gesetzt
   extern int16_t pngXOffset, pngYOffset;
   tft.pushImage(pngXOffset, pngYOffset + pDraw->y, pDraw->iWidth, 1, lineBuffer);
   return 1;
@@ -133,7 +133,7 @@ void handleNightMode() {
   bool isNight = (hour >= NIGHT_HOUR_START || hour < NIGHT_HOUR_END);
 
   if (isBacklightActive()) {
-    // Touch hat das Backlight aktiviert – Nachtmodus pausieren
+    // Touch hat das Backlight aktiviert – Ringlicht bis zum Timeout beibehalten
     digitalWrite(TFT_LED, HIGH);
     return;
   }
@@ -158,6 +158,8 @@ void setup() {
   digitalWrite(TFT_LED, HIGH);
   tft.init();
   tft.setRotation(1);
+  Serial.printf("[TFT] Treiber: 0x%04X | %dx%d | MOSI %d, SCLK %d, CS %d, DC %d, RST %d\n",
+    TFT_DRIVER, tft.width(), tft.height(), TFT_MOSI, TFT_SCLK, TFT_CS, TFT_DC, TFT_RST);
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(2);
@@ -177,13 +179,13 @@ void setup() {
 
   // WLAN
   tft.println("WLAN...");
-  connectToWiFi();
-  tft.println("WLAN OK");
+  bool wifiConnected = initializeWiFi(WIFI_SSID, WIFI_PASSWORD);
+  tft.println(wifiConnected ? "WLAN OK" : "WLAN nicht verbunden");
 
   // Zeit
   tft.println("NTP...");
-  initializeNTP();
-  tft.println("Zeit OK");
+  bool timeReady = initializeNTP(wifiConnected ? 10000UL : 0UL);
+  tft.println(timeReady ? "Zeit OK" : "Zeit noch nicht verfuegbar");
 
   // OTA
   setupOTA();
@@ -193,9 +195,9 @@ void setup() {
 
   // Wetter beim Start einmal laden
   tft.println("Wetter...");
-  initWeather();    // setzt Koordinaten / URL zusammen
+  initWeather();    // Logmeldung; Koordinaten und URLs sind in weather.h definiert
   fetchWeather();   // erster API-Abruf
-  fetchForecast();  // 3-Tages-Prognose vorladen
+  fetchForecast();  // Tages- und Viertelprognose vorladen
   tft.println("Bereit!");
 
   delay(1000);
@@ -222,8 +224,7 @@ void loop() {
       int minute = getCurrentMinute();
       if (!stateRendered || minute != lastMinute) {
         lastMinute    = minute;
-        stateRendered = true;
-        displayTime(getFormattedHours(), getFormattedMinutes());
+        stateRendered = displayTime(getFormattedHours(), getFormattedMinutes(), !stateRendered);
       }
       break;
     }
@@ -246,6 +247,14 @@ void loop() {
       break;
     }
 
+    case STATE_QUARTER_FORECAST: {
+      if (!stateRendered) {
+        stateRendered = true;
+        renderQuarterForecast();
+      }
+      break;
+    }
+
     case STATE_FORECAST: {
       if (!stateRendered) {
         stateRendered = true;
@@ -262,7 +271,7 @@ void loop() {
     fetchWeather();
     fetchForecast();
     // Falls gerade Wetter- oder Prognoseansicht aktiv: neu zeichnen
-    if (isWeatherState() || isForecastState()) stateRendered = false;
+    if (isWeatherState() || isForecastState() || isQuarterForecastState()) stateRendered = false;
   }
 
   // --- Nachtmodus ------------------------------------------------------------

@@ -71,7 +71,8 @@ static void _activateBacklight() {
   digitalWrite(TFT_LED, HIGH);
   _backlightOnAt   = millis();
   _backlightActive = true;
-  stateRendered    = false;  // Anzeige nach Aufwecken neu zeichnen
+  // Der TFT-Inhalt bleibt bei ausgeschaltetem Backlight erhalten.
+  // Nur ein tatsächlicher Ansichtswechsel setzt stateRendered zurück.
 }
 
 void handleTouch() {
@@ -89,6 +90,9 @@ void handleTouch() {
     _touchWeather = false;
     if (_isTouchAccepted(TOUCH_PIN_WEATHER, _touchThresholdWeather)) {
       if (isWeatherState()) {
+        setState(STATE_QUARTER_FORECAST);
+        Serial.println("[Touch] Tagesviertelvorhersage");
+      } else if (isQuarterForecastState()) {
         setState(STATE_FORECAST);
         Serial.println("[Touch] Wettervorhersage");
       } else {

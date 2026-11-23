@@ -14,36 +14,42 @@
 #define TIMEZONE   "CET-1CEST,M3.5.0,M10.5.0/3"
 #define NTP_SERVER "pool.ntp.org"
 
+// Direkte Momentaufnahme ohne Timeout-Schleife. getLocalTime(..., 0) kann
+// bei einem Millisekundenwechsel vor dem ersten Lesen fälschlich scheitern.
+static bool _getTime(struct tm &t) {
+  time_t now = time(nullptr);
+  return localtime_r(&now, &t) != nullptr && t.tm_year > (2016 - 1900);
+}
+
 // ---------------------------------------------------------------------------
 // Initialisierung – einmalig in setup() aufrufen
-// Blockiert bis die Zeit synchronisiert ist (max. ~10 Sekunden)
+// NTP bleibt für spätere Synchronisation aktiv, auch ohne WLAN beim Start.
+// Direkte Zeitabfragen; die zusätzliche Wartezeit ist auf timeoutMs begrenzt.
 // ---------------------------------------------------------------------------
-void initializeNTP() {
+bool initializeNTP(unsigned long timeoutMs = 10000UL) {
   configTzTime(TIMEZONE, NTP_SERVER);
 
   Serial.print("[NTP] Warte auf Zeitsynchronisation");
   struct tm timeInfo;
-  int retries = 0;
-  while (!getLocalTime(&timeInfo) && retries < 20) {
+  unsigned long startedAt = millis();
+  bool ready = _getTime(timeInfo);
+  while (!ready) {
+    unsigned long elapsed = millis() - startedAt;
+    if (elapsed >= timeoutMs) break;
     Serial.print(".");
-    delay(500);
-    retries++;
+    unsigned long remaining = timeoutMs - elapsed;
+    delay(remaining < 250UL ? remaining : 250UL);
+    ready = _getTime(timeInfo);
   }
 
-  if (retries < 20) {
+  if (ready) {
     char buf[32];
     strftime(buf, sizeof(buf), "%d.%m.%Y %H:%M:%S", &timeInfo);
     Serial.printf("\n[NTP] Zeit synchronisiert: %s\n", buf);
   } else {
-    Serial.println("\n[NTP] Zeitlimit erreicht – Zeit noch nicht verfügbar");
+    Serial.println("\n[NTP] Zeit noch nicht verfügbar – Synchronisation läuft im Hintergrund");
   }
-}
-
-// ---------------------------------------------------------------------------
-// Interne Hilfsfunktion: befüllte tm-Struktur holen
-// ---------------------------------------------------------------------------
-static bool _getTime(struct tm &t) {
-  return getLocalTime(&t);
+  return ready;
 }
 
 // ---------------------------------------------------------------------------
