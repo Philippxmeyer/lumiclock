@@ -190,6 +190,15 @@ static void touchSequenceAndTimeout() {
   mockTouchValue = 100;
   weatherPress();
   CHECK(isClockState()); // Fehltrigger
+
+  mockTouchValue = 20;
+  stateRendered = true;
+  mockMillis += 400;
+  _onTouchClock();
+  handleTouch();
+  CHECK(isClockState());
+  CHECK(stateRendered); // Wiederholtes Berühren darf den TFT-Inhalt nicht löschen.
+  CHECK(isBacklightActive());
 }
 
 int main() {

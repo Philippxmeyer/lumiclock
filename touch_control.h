@@ -71,7 +71,8 @@ static void _activateBacklight() {
   digitalWrite(TFT_LED, HIGH);
   _backlightOnAt   = millis();
   _backlightActive = true;
-  stateRendered    = false;  // Anzeige nach Aufwecken neu zeichnen
+  // Der TFT-Inhalt bleibt bei ausgeschaltetem Backlight erhalten.
+  // Nur ein tatsächlicher Ansichtswechsel setzt stateRendered zurück.
 }
 
 void handleTouch() {

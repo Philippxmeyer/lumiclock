@@ -47,7 +47,17 @@ Das Projekt geht (laut Code) von folgender Verdrahtung aus:
   - Wetter / Prognose: **T7**
   - Mond: **T8**
 
-Die Touch-Pins stehen in `touch_control.h`, die Ring-Konfiguration in `ring_light.h` und der Backlight-Pin als `TFT_LED` in `lumiclock.ino`. Displaytreiber und Display-Pins werden in der verwendeten `TFT_eSPI`-Konfiguration festgelegt.
+Die Touch-Pins stehen in `touch_control.h`, die Ring-Konfiguration in `ring_light.h` und der Backlight-Pin als `TFT_LED` in `lumiclock.ino`. Displaytreiber und Display-Pins stehen projektlokal in `tft_setup.h`, übernommen aus der funktionierenden Hardwarekonfiguration:
+
+| Displayeinstellung | Wert |
+|---|---|
+| Treiber / Auflösung quer | ILI9488 / 480×320 |
+| MOSI / SCLK | GPIO 23 / 18 |
+| CS / DC / RST | GPIO 5 / 17 / 16 |
+| MISO | nicht angeschlossen |
+| SPI-Frequenz / Farbreihenfolge | 27 MHz / BGR |
+
+Die Hintergrundbeleuchtung steuert der Sketch an GPIO 4. Die projektlokale Konfiguration verhindert, dass der Default einer anderen TFT_eSPI-Installation abweichende Treiber oder Pins auswählt.
 
 ---
 
@@ -65,14 +75,16 @@ Das Projekt ist modular in Header-Dateien aufgeteilt:
 - `ring_light.h` – NeoPixel-Ringsteuerung/Nachtlicht
 - `ntp_client.h` – NTP + Zeitzonenhandling (inkl. Sommerzeit)
 - `ota_update.h` – ArduinoOTA Integration
-- `wifi_credentials.h` – lokale WLAN-Zugangsdaten und `connectToWiFi()`; durch `.gitignore` ausgeschlossen
+- `wifi_credentials.h` – lokale WLAN-Zugangsdaten; durch `.gitignore` ausgeschlossen
+- `wifi_connection.h` – WLAN-Verbindungsaufbau mit Erfolgsprüfung und Zeitlimit
 - `Baloo2_*.h` – eingebettete Schriftarten
 - `build_opt.h` / `lumiclock_build.h` – projektweite Auswahl der tatsächlich genutzten TFT-Schriften
+- `tft_setup.h` – feste ILI9488-Hardwarekonfiguration für ESP32-WROOM, unabhängig von lokalen Library-Defaults
 - `data/` – PNG-Dateien für das LittleFS-Dateisystem
 
 `lumiclock.ino` verbindet die Module. Die Header enthalten neben Deklarationen auch Funktionsdefinitionen und globale Variablen; gemeinsame Objekte wie `tft` werden über `extern` genutzt. Die Einbindereihenfolge ist daher teilweise wichtig.
 
-`loop()` verarbeitet OTA, Touch-Ereignisse, Zustandswechsel, Anzeige, Wetterabrufe und Nachtmodus nacheinander. `stateRendered` verhindert unnötiges Neuzeichnen; die Uhr wird zusätzlich beim Minutenwechsel aktualisiert. Netzwerkabrufe blockieren diesen Ablauf zeitweise.
+`loop()` verarbeitet OTA, Touch-Ereignisse, Zustandswechsel, Anzeige, Wetterabrufe und Nachtmodus nacheinander. `stateRendered` verhindert unnötiges Neuzeichnen; die Uhr wird zusätzlich beim Minutenwechsel aktualisiert. Sie wird in einem wiederverwendeten 1-Bit-Bildpuffer vorbereitet (rund 19 KB RAM), bevor die geänderten Bildbereiche auf den TFT übertragen werden. Dadurch entfällt das sichtbare Vollbild-Löschen beim Minutenwechsel; das unveränderte Datum wird nicht erneut übertragen. Ein erneuter Uhr-Touch aktiviert nur die Beleuchtung, ohne den bestehenden Bildinhalt zu löschen. Netzwerkabrufe blockieren den Ablauf zeitweise.
 
 ---
 
@@ -152,7 +164,7 @@ Zeitzone ist als POSIX-String gesetzt:
 
 Das bedeutet automatische Sommer-/Winterzeitumschaltung für Mitteleuropa. Weil wir 2026 sind und man sowas nicht mehr manuell „if Monat > 3“ hacken sollte.
 
-Die Initialisierung wartet auf eine gültige Systemzeit. Neben 20 Wiederholungspausen von je 500 ms kann jeder `getLocalTime()`-Aufruf selbst blockieren. Mit dem Standardtimeout von 5 Sekunden im lokal geprüften ESP32-Core 3.3.12 sind bei ausbleibender Zeit etwa 115 Sekunden möglich; es gibt kein festes Gesamtlimit von 10 Sekunden.
+Der Start wartet zunächst bis zu 20 Sekunden auf WLAN und meldet „WLAN OK“ erst bei tatsächlicher Verbindung. Danach wartet NTP höchstens rund 10 Sekunden auf eine gültige Systemzeit. Fehlt WLAN, wird die NTP-Warteschleife übersprungen. Die Synchronisation bleibt im Hintergrund aktiv; „Zeit OK“ erscheint erst bei gültiger Zeit. Alle Zeitabfragen lesen direkt mit `time()`/`localtime_r()` und prüfen die Gültigkeit ohne Wartezeit. `getLocalTime(..., 0)` wird vermieden: Dessen Timeout-Schleife kann bei einem Millisekundenwechsel vor dem ersten Lesen enden und dadurch eine gültige Zeit vorübergehend als ungültig melden.
 
 Die Mondphase wird ohne zusätzliche API näherungsweise aus einem Referenzneumond und einer festen Periodendauer von 29,53059 Tagen berechnet. Daraus entstehen acht Phasen mit Namen und der Anzeige „Tag … von 30“. Ein beleuchteter Prozentanteil wird nicht berechnet.
 
@@ -205,8 +217,8 @@ Kann LittleFS selbst nicht eingebunden werden, zeigt das Display „LittleFS FEH
 3. Die nicht versionierte Datei `wifi_credentials.h` anlegen, mit:
    - `WIFI_SSID`
    - `WIFI_PASSWORD`
-   - `connectToWiFi()`
-4. `TFT_eSPI` auf dein Display konfigurieren.
+   Die Verbindungslogik liegt in `wifi_connection.h`; eine private Funktion `connectToWiFi()` wird nicht mehr benötigt oder aufgerufen.
+4. `TFT_eSPI` installieren. Die mitgelieferte `tft_setup.h` enthält die ILI9488-Konfiguration der Lumiclock; Änderungen in der installierten Library sind nicht nötig. Bei anderer Hardware diese Projektdatei anpassen.
 5. Inhalte von `data/` als LittleFS-Image auf den ESP32 laden.
 6. Sketch flashen.
 
@@ -222,7 +234,7 @@ Native Tests (benötigt `g++`, Python 3 und die installierten ArduinoJson-/TFT_e
 bash tests/run_tests.sh
 ```
 
-Geprüft werden alle Stunden des Tages, die Umschaltung ab 14 Uhr, Viertelwerte, Mitternacht/Jahreswechsel, unvollständige Daten, Cache-Erhalt sowie die echte Touch-Zustandsfolge mit Entprellung und Timeout. Zusätzliche Tests vergleichen die verkleinerte Uhrenschrift mit den Original-Pixeln und prüfen, dass Display-/Pin-Einstellungen und die verwendeten TFT-Schriften erhalten bleiben. Touch-/LED-Hardware wird dabei ersetzt.
+Geprüft werden alle Stunden des Tages, die Umschaltung ab 14 Uhr, Viertelwerte, Mitternacht/Jahreswechsel, unvollständige Daten, Cache-Erhalt sowie die echte Touch-Zustandsfolge mit Entprellung und Timeout. Startup-Tests prüfen verzögerten/fehlgeschlagenen WLAN-Aufbau, Verbindungsparameter, Zeitlimits, fehlende/später verfügbare NTP-Zeit und den Millisekundenfehler der früheren Zeitabfrage. Uhr-Renderingtests verwenden die echten Font-Bitmaps und prüfen Minuten-/Datumswechsel, wiederholte Darstellung ohne Neuzeichnen, Bildpuffernutzung, fehlenden Speicher sowie die Rückkehr aus anderen Ansichten ohne vorangestelltes Löschbild. Zusätzliche Tests vergleichen die verkleinerte Uhrenschrift mit den Original-Pixeln und prüfen ILI9488-Treiber, Pins, Farben, SPI-Einstellungen sowie die verwendeten TFT-Schriften. Ein absichtlich fehlerhafter globaler Library-Default darf die Projektkonfiguration nicht beeinflussen. Die Hardware und die Netzwerkantworten werden in diesen Tests ersetzt.
 
 Build für einen klassischen ESP32-WROOM mit 4 MB Flash und Standard-OTA-Partitionierung:
 
@@ -230,20 +242,20 @@ Build für einen klassischen ESP32-WROOM mit 4 MB Flash und Standard-OTA-Partiti
 arduino-cli compile --fqbn esp32:esp32:esp32 --build-path /tmp/lumiclock-wroom-build --output-dir build/esp32-wroom .
 ```
 
-Geprüft mit ESP32-Core 3.3.12. Die Firmware liegt anschließend in `build/esp32-wroom/lumiclock.ino.bin`. Der Build nutzt die lokal installierte `TFT_eSPI`-Konfiguration; vor einem Upload müssen Displaytreiber und Pins zur tatsächlichen Hardware passen.
+Geprüft mit ESP32-Core 3.3.12 und TFT_eSPI 2.5.43. Die Firmware liegt anschließend in `build/esp32-wroom/lumiclock.ino.bin`. Der Build nutzt auf PC und Raspberry Pi dieselbe Hardwarekonfiguration aus `tft_setup.h`. Beim Start protokolliert die Firmware den tatsächlichen TFT-Treiber, die gedrehte Auflösung und die verwendeten SPI-/Steuerpins.
 
 ### Flashbedarf reduzieren
 
 Die Uhr verwendet `Baloo2_Clock40pt7b.h`, einen Ausschnitt der ursprünglichen großen Baloo-Schrift mit Ziffern, Doppelpunkt und Minuszeichen für den Zeit-Platzhalter. Pixel, Zeichenabstände und Zeilenhöhe entsprechen dem Original. Die vollständige Quelldatei bleibt erhalten; mit `python3 tools/make_clock_font.py` lässt sich der Ausschnitt neu erzeugen.
 
-Der ESP32-Core übernimmt `build_opt.h` automatisch beim Bauen. Über `lumiclock_build.h` wird zuerst die vorhandene `TFT_eSPI`-Displaykonfiguration geladen; anschließend werden ausschließlich die unbenutzten Standardschriften 2/4/6/7/8 und die ungenutzte Smooth-Font-Unterstützung deaktiviert. Standardschrift 1 für Start-/OTA-Texte sowie sämtliche verwendeten GFX-Bitmapfonts bleiben verfügbar. Änderungen an der systemweit installierten Library sind dafür nicht erforderlich. Die OTA-Partitionierung bleibt gleich.
+Der ESP32-Core übernimmt `build_opt.h` automatisch beim Bauen. Über `lumiclock_build.h` wird die Hardwarekonfiguration aus `tft_setup.h` auch beim Übersetzen der TFT_eSPI-Library verwendet. Unbenutzte Standardschriften 2/4/6/7/8 und die ungenutzte Smooth-Font-Unterstützung bleiben deaktiviert. Standardschrift 1 für Start-/OTA-Texte sowie sämtliche verwendeten GFX-Bitmapfonts sind verfügbar. Änderungen an der systemweit installierten Library sind dafür nicht erforderlich. Die OTA-Partitionierung bleibt gleich.
 
 ---
 
 ## Bekannte Besonderheiten
 
 - Einige Header nutzen Fonts wie `FreeSans18pt7b`; je nach Setup muss der Font in deiner Umgebung verfügbar/eingebunden sein.
-- Die lokale `connectToWiFi()`-Implementierung startet die WLAN-Verbindung ohne auf deren Aufbau zu warten. Die Startmeldungen „WLAN OK“ und „Zeit OK“ prüfen den Erfolg nicht zusätzlich. Fehlt beim ersten Wetterabruf die Verbindung, wird der Abruf übersprungen; ein erneuter Versuch folgt erst beim regulären Wetterintervall.
+- WLAN-Zugangsdaten müssen zum tatsächlich verwendeten Netz passen. Fehlt die Verbindung trotz Start-Zeitlimit, bleibt die Uhr bedienbar, zeigt fehlende Zeit als Platzhalter an und aktiviert den automatischen WLAN-Wiederaufbau. Wetterabrufe ohne WLAN werden übersprungen; ein erneuter Abruf folgt beim regulären Wetterintervall.
 - Wetter- und Prognosedaten werden nur im RAM zwischengespeichert. Bei Abruffehlern bleibt der letzte gültige Stand der laufenden Sitzung erhalten. Nach einem Neustart ohne erfolgreichen Abruf erscheint „Keine Wetterdaten“ bzw. „Keine Prognosedaten“.
 - Das Projekt ist stark auf den aktuellen Display-/Layout-Usecase zugeschnitten – also absichtlich pragmatisch statt generisch.
 

@@ -11,7 +11,8 @@
 #include <ArduinoOTA.h>
 
 // --- Eigene Module (Reihenfolge ist wichtig) ---------------------------------
-#include "wifi_credentials.h"   // WIFI_SSID, WIFI_PASSWORD, connectToWiFi()
+#include "wifi_credentials.h"   // WIFI_SSID, WIFI_PASSWORD (nur lokale Zugangsdaten)
+#include "wifi_connection.h"    // initializeWiFi(): begrenzte Verbindungsprüfung
 #include "ntp_client.h"         // initializeNTP(), getFormattedHours/Minutes(),
                                 //   getCurrentHour/Minute(), getCurrentDate()
 #include "lumiclock_state.h"    // DisplayState, setState(), updateState(),
@@ -157,6 +158,8 @@ void setup() {
   digitalWrite(TFT_LED, HIGH);
   tft.init();
   tft.setRotation(1);
+  Serial.printf("[TFT] Treiber: 0x%04X | %dx%d | MOSI %d, SCLK %d, CS %d, DC %d, RST %d\n",
+    TFT_DRIVER, tft.width(), tft.height(), TFT_MOSI, TFT_SCLK, TFT_CS, TFT_DC, TFT_RST);
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(2);
@@ -176,13 +179,13 @@ void setup() {
 
   // WLAN
   tft.println("WLAN...");
-  connectToWiFi();
-  tft.println("WLAN OK");
+  bool wifiConnected = initializeWiFi(WIFI_SSID, WIFI_PASSWORD);
+  tft.println(wifiConnected ? "WLAN OK" : "WLAN nicht verbunden");
 
   // Zeit
   tft.println("NTP...");
-  initializeNTP();
-  tft.println("Zeit OK");
+  bool timeReady = initializeNTP(wifiConnected ? 10000UL : 0UL);
+  tft.println(timeReady ? "Zeit OK" : "Zeit noch nicht verfuegbar");
 
   // OTA
   setupOTA();
@@ -221,8 +224,7 @@ void loop() {
       int minute = getCurrentMinute();
       if (!stateRendered || minute != lastMinute) {
         lastMinute    = minute;
-        stateRendered = true;
-        displayTime(getFormattedHours(), getFormattedMinutes());
+        stateRendered = displayTime(getFormattedHours(), getFormattedMinutes(), !stateRendered);
       }
       break;
     }

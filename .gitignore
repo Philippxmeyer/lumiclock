@@ -10,3 +10,6 @@ build/
 # VS Code / PlatformIO
 .vscode/
 .pio/
+
+# Alter Code als Referenz
+.old/

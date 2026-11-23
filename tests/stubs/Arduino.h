@@ -1,5 +1,8 @@
 #pragma once
 #include <stdint.h>
+#include <string>
+
+using String = std::string;
 
 #define IRAM_ATTR
 #define T6 14
@@ -16,6 +19,7 @@ inline void touchAttachInterrupt(uint8_t, void (*)(), uint16_t) {}
 inline void digitalWrite(int, int) {}
 struct MockSerial {
   template <typename... Args> void printf(const char*, Args...) {}
+  void print(const char*) {}
   void println(const char*) {}
 };
 inline MockSerial Serial;
