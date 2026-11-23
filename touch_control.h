@@ -89,6 +89,9 @@ void handleTouch() {
     _touchWeather = false;
     if (_isTouchAccepted(TOUCH_PIN_WEATHER, _touchThresholdWeather)) {
       if (isWeatherState()) {
+        setState(STATE_QUARTER_FORECAST);
+        Serial.println("[Touch] Tagesviertelvorhersage");
+      } else if (isQuarterForecastState()) {
         setState(STATE_FORECAST);
         Serial.println("[Touch] Wettervorhersage");
       } else {

@@ -14,6 +14,7 @@ enum DisplayState {
   STATE_WEATHER,  // Wetterdaten
   STATE_MOON,     // Mondphase
   STATE_FORECAST, // 3-Tages-Prognose
+  STATE_QUARTER_FORECAST, // Nächste drei Tagesviertel
 };
 
 DisplayState  currentState    = STATE_CLOCK;
@@ -50,5 +51,6 @@ bool isClockState()    { return currentState == STATE_CLOCK;    }
 bool isWeatherState()  { return currentState == STATE_WEATHER;  }
 bool isMoonState()     { return currentState == STATE_MOON;     }
 bool isForecastState() { return currentState == STATE_FORECAST; }
+bool isQuarterForecastState() { return currentState == STATE_QUARTER_FORECAST; }
 
 #endif

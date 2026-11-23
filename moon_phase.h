@@ -10,9 +10,9 @@ extern bool drawPNG(const char* filename, int16_t x, int16_t y);
 // ---------------------------------------------------------------------------
 // Mondphasenberechnung
 //
-// Algorithmus nach Conway / Meeus "Astronomical Algorithms":
-// Berechnet den Anteil des beleuchteten Mondes (0.0 – 1.0) sowie
-// ob der Mond zu- oder abnimmt.
+// Näherung aus julianischem Datum, Referenzneumond und einer festen
+// synodischen Periodendauer von 29.53059 Tagen. Der Phasenindex wird danach
+// aus dem Mondalter abgeleitet; kein beleuchteter Anteil wird berechnet.
 //
 // Rückgabe: Alter des Mondes in Tagen seit letztem Neumond (0.0 – 29.53)
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ static double _moonAge(int day, int month, int year) {
             + (long)(30.6001 * (month + 1))
             + day + B - 1524.5;
 
-  // Tage seit bekanntem Neumond (2000-01-06 18:14 UTC = JD 2451550.1)
+  // Tage seit Referenzneumond Anfang Januar 2000 (JD 2451550.1)
   double daysSinceNew = jd - 2451550.1;
 
   // Modulo 29.53 (Synodische Periode)
@@ -99,9 +99,9 @@ static const char* _moonPhaseName(int phaseIndex) {
 // ---------------------------------------------------------------------------
 // renderMoonPhase() – zeichnet Mondphase auf das TFT
 // Layout (3.5" Display, 480×320):
-//   - Icon zentriert oben  (160×160 px) bei (160, 20)
-//   - Phasename unten zentriert         bei y=260
-//   - Mondalter in Tagen                bei y=295
+//   - Vorhandene Mond-PNGs: 317×320 px, gezeichnet bei (10, 5), ohne Skalierung
+//   - Phasename horizontal zentriert bei y=250
+//   - Mondalter als "Tag … von 30" horizontal zentriert bei y=285
 // ---------------------------------------------------------------------------
 void renderMoonPhase(int day, int month, int year) {
   double age        = _moonAge(day, month, year);
@@ -112,7 +112,7 @@ void renderMoonPhase(int day, int month, int year) {
 
   tft.fillScreen(TFT_BLACK);
 
-  // Icon zentriert
+  // Icon an fester Position; Text wird anschließend darüber gezeichnet
   drawPNG(_moonIcon(phaseIndex), 10, 5);
 
 // Phasename

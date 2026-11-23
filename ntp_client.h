@@ -16,7 +16,9 @@
 
 // ---------------------------------------------------------------------------
 // Initialisierung – einmalig in setup() aufrufen
-// Blockiert bis die Zeit synchronisiert ist (max. ~10 Sekunden)
+// Wartet auf gültige Zeit; jeder getLocalTime()-Aufruf nutzt den Core-Timeout.
+// Ohne gültige Zeit: bis zu 21 Aufrufe plus 20 Pausen à 500 ms.
+// Bei 5 s Standardtimeout ca. 115 s, kein festes Gesamtlimit von 10 s.
 // ---------------------------------------------------------------------------
 void initializeNTP() {
   configTzTime(TIMEZONE, NTP_SERVER);

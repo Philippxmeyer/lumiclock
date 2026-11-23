@@ -2,7 +2,7 @@
 #define DISPLAY_TIME_H
 
 #include <TFT_eSPI.h>
-#include "Baloo2_Bold40pt7b.h"
+#include "Baloo2_Clock40pt7b.h"
 #include "Baloo2_Bold24pt8b.h"
 
 extern TFT_eSPI tft;
@@ -31,7 +31,7 @@ void displayTime(const String& hours, const String& minutes) {
   tft.fillScreen(TFT_BLACK);
 
   // --- Uhrzeit ---
-  tft.setFreeFont(&Baloo2_Bold40pt7b);
+  tft.setFreeFont(&Baloo2_Clock40pt7b);
   tft.setTextSize(2);
   tft.setTextColor(TFT_RED, TFT_BLACK);
 
